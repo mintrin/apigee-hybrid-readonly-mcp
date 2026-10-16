@@ -10,3 +10,4 @@ apigee-orgs.toml
 *.key.json
 gha-creds-*.json
 .env
+.DS_Store
