@@ -193,7 +193,7 @@ def build_token_provider(spec: CredSpec | None = None) -> TokenProvider:
         creds, desc = _google_creds(spec)
         return GoogleAuthProvider(creds, desc)
     except ImportError:
-        errors.append("google-auth not installed (pip install 'apigee-hybrid-mcp[google]')")
+        errors.append("google-auth not installed (pip install 'apigee-hybrid-readonly-mcp[google]')")
     except Exception as e:  # DefaultCredentialsError, bad key file, ...
         errors.append(f"google-auth: {_short(e)}")
 

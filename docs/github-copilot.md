@@ -15,8 +15,8 @@ Every tool sets `readOnlyHint: true`. Copilot code review only uses MCP tools th
 Install the server once. Run the install from the repo checkout:
 
 ```bash
-python3 -m venv ~/.venvs/apigee-mcp
-~/.venvs/apigee-mcp/bin/pip install -e '.[google]'
+python3 -m venv ~/.venvs/apigee-hybrid-readonly-mcp
+~/.venvs/apigee-hybrid-readonly-mcp/bin/pip install -e '.[google]'
 gcloud auth login
 ```
 
@@ -25,11 +25,11 @@ Then add `.vscode/mcp.json` to whatever workspace you want it in. This repo incl
 ```json
 {
   "servers": {
-    "apigee-hybrid": {
+    "apigee-hybrid-readonly": {
       "type": "stdio",
-      "command": "${userHome}/.venvs/apigee-mcp/bin/apigee-hybrid-mcp",
+      "command": "${userHome}/.venvs/apigee-hybrid-readonly-mcp/bin/apigee-hybrid-readonly-mcp",
       "env": {
-        "APIGEE_CONFIG": "${userHome}/.config/apigee-mcp/apigee-orgs.toml",
+        "APIGEE_CONFIG": "${userHome}/.config/apigee-hybrid-readonly-mcp/apigee-orgs.toml",
         "APIGEE_TIERS": "sandbox,nonprod"
       }
     }
@@ -38,17 +38,17 @@ Then add `.vscode/mcp.json` to whatever workspace you want it in. This repo incl
 ```
 
 1. Open Copilot Chat, switch to **Agent** mode, and start the server. You can start it from the CodeLens in `mcp.json` or with **MCP: List Servers**.
-2. Use **Configure Tools** in the chat input to enable the `apigee-hybrid` tools.
-3. Ask, for example: *"Using apigee-hybrid, which revision of `orders` is deployed in each nonprod org?"*
+2. Use **Configure Tools** in the chat input to enable the `apigee-hybrid-readonly` tools.
+3. Ask, for example: *"Using apigee-hybrid-readonly, which revision of `orders` is deployed in each nonprod org?"*
 
 To also reach preprod and prod, add a second entry with its own tier filter. The prod-like tiers then stay a deliberate choice in the tool picker:
 
 ```json
-    "apigee-hybrid-prod": {
+    "apigee-hybrid-readonly-prod": {
       "type": "stdio",
-      "command": "${userHome}/.venvs/apigee-mcp/bin/apigee-hybrid-mcp",
+      "command": "${userHome}/.venvs/apigee-hybrid-readonly-mcp/bin/apigee-hybrid-readonly-mcp",
       "env": {
-        "APIGEE_CONFIG": "${userHome}/.config/apigee-mcp/apigee-orgs.toml",
+        "APIGEE_CONFIG": "${userHome}/.config/apigee-hybrid-readonly-mcp/apigee-orgs.toml",
         "APIGEE_TIERS": "preprod,prod"
       }
     }
@@ -57,7 +57,7 @@ To also reach preprod and prod, add a second entry with its own tier filter. The
 To add it to your user profile instead of a workspace:
 
 ```bash
-code --add-mcp '{"name":"apigee-hybrid","command":"'"$HOME"'/.venvs/apigee-mcp/bin/apigee-hybrid-mcp","env":{"APIGEE_CONFIG":"'"$HOME"'/.config/apigee-mcp/apigee-orgs.toml"}}'
+code --add-mcp '{"name":"apigee-hybrid-readonly","command":"'"$HOME"'/.venvs/apigee-hybrid-readonly-mcp/bin/apigee-hybrid-readonly-mcp","env":{"APIGEE_CONFIG":"'"$HOME"'/.config/apigee-hybrid-readonly-mcp/apigee-orgs.toml"}}'
 ```
 
 **Notes**
@@ -71,11 +71,11 @@ code --add-mcp '{"name":"apigee-hybrid","command":"'"$HOME"'/.venvs/apigee-mcp/b
 ```json
 {
   "mcpServers": {
-    "apigee-hybrid": {
+    "apigee-hybrid-readonly": {
       "type": "local",
-      "command": "/home/you/.venvs/apigee-mcp/bin/apigee-hybrid-mcp",
+      "command": "/home/you/.venvs/apigee-hybrid-readonly-mcp/bin/apigee-hybrid-readonly-mcp",
       "args": [],
-      "env": { "APIGEE_CONFIG": "/home/you/.config/apigee-mcp/apigee-orgs.toml" },
+      "env": { "APIGEE_CONFIG": "/home/you/.config/apigee-hybrid-readonly-mcp/apigee-orgs.toml" },
       "tools": ["*"]
     }
   }
@@ -126,7 +126,7 @@ Copy [`.github/workflows/copilot-setup-steps.yml`](../.github/workflows/copilot-
 Create these variables in that repo's `copilot` environment (Settings → Environments → copilot):
 - `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_SERVICE_ACCOUNT`
 - `APIGEE_ORGS_TOML`, holding the TOML text for the non-prod orgs
-- `APIGEE_MCP_SOURCE`, the pip source for this server, for example `git+https://github.com/<owner>/apigee-hybrid-mcp@v0.2.0`
+- `APIGEE_MCP_SOURCE`, the pip source for this server, for example `git+https://github.com/<owner>/apigee-hybrid-readonly-mcp@v0.4.0`
 
 All four are variables, not secrets.
 
@@ -137,9 +137,9 @@ Repo **Settings → Copilot → MCP servers → MCP configuration**:
 ```json
 {
   "mcpServers": {
-    "apigee-hybrid": {
+    "apigee-hybrid-readonly": {
       "type": "local",
-      "command": "/home/runner/apigee-mcp/bin/apigee-hybrid-mcp",
+      "command": "/home/runner/apigee-hybrid-readonly-mcp/bin/apigee-hybrid-readonly-mcp",
       "args": [],
       "env": {
         "GOOGLE_APPLICATION_CREDENTIALS": "/home/runner/gcp-adc.json",
@@ -179,13 +179,13 @@ How the agent gets credentials:
 - The setup workflow runs `google-github-actions/auth@v3` with workload identity federation.
 - It moves the generated ADC file to `/home/runner/gcp-adc.json`. This keeps the file out of the checkout, so the agent can't commit it, and gives it a fixed path.
 - The MCP `env` above points `GOOGLE_APPLICATION_CREDENTIALS` at that path.
-- The setup job ends with `apigee-hybrid-mcp --check`, so broken credentials fail before the agent starts rather than mid-task.
+- The setup job ends with `apigee-hybrid-readonly-mcp --check`, so broken credentials fail before the agent starts rather than mid-task.
 
 ### d. Try it
 
 Assign an issue to Copilot, for example:
 
-> Our `orders` proxy in nonprod is one revision behind sandbox. Use the apigee-hybrid MCP tools to confirm the deployed revisions, diff the proxy bundles in this repo between those revisions, and summarise what changed.
+> Our `orders` proxy in nonprod is one revision behind sandbox. Use the apigee-hybrid-readonly MCP tools to confirm the deployed revisions, diff the proxy bundles in this repo between those revisions, and summarise what changed.
 
 ## Repo instructions for Copilot
 

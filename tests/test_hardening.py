@@ -19,13 +19,13 @@ from unittest import mock
 import httpx2 as httpx
 from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 
-from apigee_mcp import auth, client as client_mod, server
-from apigee_mcp.auth import AuthError, GcloudCliProvider
-from apigee_mcp.client import ApigeeClient, ApigeeError, ForbiddenOperation, _check_params, seg
-from apigee_mcp.config import ConfigError, OrgConfig, Registry
-from apigee_mcp.redact import redact
+from apigee_hybrid_readonly_mcp import __version__, auth, client as client_mod, server
+from apigee_hybrid_readonly_mcp.auth import AuthError, GcloudCliProvider
+from apigee_hybrid_readonly_mcp.client import ApigeeClient, ApigeeError, ForbiddenOperation, _check_params, seg
+from apigee_hybrid_readonly_mcp.config import ConfigError, OrgConfig, Registry
+from apigee_hybrid_readonly_mcp.redact import redact
 
-logging.getLogger("apigee_mcp").setLevel(logging.CRITICAL)
+logging.getLogger("apigee_hybrid_readonly_mcp").setLevel(logging.CRITICAL)
 
 ORG = "acme"
 BASE = "https://apigee.googleapis.com/v1"
@@ -493,7 +493,19 @@ class AuthAndCliTests(unittest.TestCase):
         out = io.StringIO()
         with mock.patch("sys.stdout", out), self.assertRaises(SystemExit):
             server.main(["--version"])
-        self.assertIn("apigee-hybrid-mcp 0.3.0", out.getvalue())
+        self.assertIn(f"apigee-hybrid-readonly-mcp {__version__}", out.getvalue())
+
+    def test_legacy_command_still_works_with_warning(self):
+        err, out = io.StringIO(), io.StringIO()
+        with mock.patch("sys.stdout", out), redirect_stderr(err), self.assertRaises(SystemExit):
+            with mock.patch("sys.argv", ["apigee-hybrid-mcp", "--version"]):
+                server.main_legacy()
+        self.assertIn("deprecated", err.getvalue())
+        self.assertIn(__version__, out.getvalue())
+
+    def test_server_identity(self):
+        self.assertEqual(server.mcp.name, "apigee-hybrid-readonly")
+        self.assertEqual(server.mcp.title, "Apigee Hybrid Read-Only MCP")
 
 
 if __name__ == "__main__":

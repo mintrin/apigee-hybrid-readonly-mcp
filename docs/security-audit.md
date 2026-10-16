@@ -1,7 +1,7 @@
-# Security and production-readiness audit: v0.3.0
+# Security and production-readiness audit: Apigee Hybrid Read-Only MCP v0.3.0
 
 **Date:** 2026-10-15
-**Scope:** `src/apigee_mcp/*` (server, client, config, auth, redact), packaging, tests
+**Scope:** `src/apigee_hybrid_readonly_mcp/*` (server, client, config, auth, redact), packaging, tests
 **Method:** a line-by-line review, plus an independent adversarial review by a separate agent. That agent had not seen this review. It wrote and ran exploit attempts against the code, capturing real outgoing requests through a mock transport. Every finding below was fixed, then guarded by a regression test in `tests/test_hardening.py`. Each guard was mutation-checked: removing the fix makes a test fail.
 
 Severity reflects impact on the core guarantees:
@@ -78,4 +78,4 @@ All findings were re-checked by running the reviewer's original exploit scripts 
 
   A secret stored under an innocuous name, or quoted in an error message with nothing secret-looking next to it, can still pass through.
 - **Allowed query parameters:** `apigee_get` and `across_orgs` accept only the parameters listed in `client._ALLOWED_PARAMS`. If you need another Apigee parameter, add it there with a test, and never add a Google system parameter (`alt`, `callback`, `fields`, `$...`, `key`, `*_token`, `quotaUser`, `userProject`).
-- **Not verified in this environment:** live calls against `apigee.googleapis.com`, google-auth refresh against real credentials, and `pip install` / wheel build (the build backend wasn't installable offline). CI (`.github/workflows/ci.yml`) covers install and tests, and `apigee-hybrid-mcp --check` covers live access.
+- **Not verified in this environment:** live calls against `apigee.googleapis.com`, google-auth refresh against real credentials, and `pip install` / wheel build (the build backend wasn't installable offline). CI (`.github/workflows/ci.yml`) covers install and tests, and `apigee-hybrid-readonly-mcp --check` covers live access.

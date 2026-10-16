@@ -38,14 +38,14 @@ orgs = ["acme-prod-us-west", "acme-prod-eu-west"]
 
 ```bash
 gcloud auth login
-APIGEE_CONFIG=~/apigee-orgs.toml apigee-hybrid-mcp --check
+APIGEE_CONFIG=~/apigee-orgs.toml apigee-hybrid-readonly-mcp --check
 ```
 
 ### Workstation: just your own access
 
 ```bash
 gcloud auth login            # or: gcloud auth application-default login
-APIGEE_AUTH=gcloud APIGEE_ALLOWED_ORGS=org-a,org-b apigee-hybrid-mcp --check
+APIGEE_AUTH=gcloud APIGEE_ALLOWED_ORGS=org-a,org-b apigee-hybrid-readonly-mcp --check
 ```
 
 The assistant gets exactly your Apigee permissions. The code still blocks writes, but IAM no longer backs that up. Prefer impersonating a reader SA.
@@ -85,7 +85,7 @@ The loop assumes the Hybrid org name matches its GCP project ID, which is the de
 ## Verify
 
 ```bash
-apigee-hybrid-mcp --check
+apigee-hybrid-readonly-mcp --check
 ```
 
 Expected output:

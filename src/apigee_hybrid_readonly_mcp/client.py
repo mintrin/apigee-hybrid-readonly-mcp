@@ -42,7 +42,7 @@ from .auth import AuthError, TokenProvider, build_token_provider
 from .config import CredSpec, OrgConfig, Registry, UnknownOrg
 from .redact import mask_text, redact
 
-log = logging.getLogger("apigee_mcp.http")
+log = logging.getLogger("apigee_hybrid_readonly_mcp.http")
 
 MAX_RESPONSE_CHARS = int(os.environ.get("APIGEE_MAX_RESPONSE_CHARS", "120000"))
 MAX_RESPONSE_BYTES = int(os.environ.get("APIGEE_MAX_RESPONSE_BYTES", str(20 * 1024 * 1024)))
@@ -156,7 +156,7 @@ class ApigeeClient:
             timeout=httpx.Timeout(registry.timeout_s, connect=min(10.0, registry.timeout_s)),
             transport=transport,
             follow_redirects=False,  # never let a redirect carry the token elsewhere
-            headers={"Accept": "application/json", "User-Agent": f"apigee-hybrid-mcp/{__version__} (read-only)"},
+            headers={"Accept": "application/json", "User-Agent": f"apigee-hybrid-readonly-mcp/{__version__} (read-only)"},
         )
 
     async def aclose(self) -> None:

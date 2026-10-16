@@ -1,13 +1,13 @@
-# Copilot instructions for apigee-hybrid-mcp
+# Copilot instructions for Apigee Hybrid Read-Only MCP (apigee-hybrid-readonly-mcp)
 
 This repo is a **read-only** MCP server for the Apigee Hybrid management API. The read-only guarantee is the core requirement. Never weaken it.
 
 ## Layout
-- `src/apigee_mcp/server.py`: MCP tools (one async function per tool, registered with `@tool`)
-- `src/apigee_mcp/client.py`: HTTP client. Path validation, GET-only enforcement, per-org routing, fan-out.
-- `src/apigee_mcp/config.py`: org/tier registry (TOML or env vars)
-- `src/apigee_mcp/auth.py`: token providers (ADC, SA key, gcloud CLI, impersonation)
-- `src/apigee_mcp/redact.py`: secret masking
+- `src/apigee_hybrid_readonly_mcp/server.py`: MCP tools (one async function per tool, registered with `@tool`)
+- `src/apigee_hybrid_readonly_mcp/client.py`: HTTP client. Path validation, GET-only enforcement, per-org routing, fan-out.
+- `src/apigee_hybrid_readonly_mcp/config.py`: org/tier registry (TOML or env vars)
+- `src/apigee_hybrid_readonly_mcp/auth.py`: token providers (ADC, SA key, gcloud CLI, impersonation)
+- `src/apigee_hybrid_readonly_mcp/redact.py`: secret masking
 - `docs/design.md`: architecture and security model. Update it when behaviour changes.
 
 ## Rules for new or changed tools

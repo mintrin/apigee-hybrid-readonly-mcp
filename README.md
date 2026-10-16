@@ -1,10 +1,12 @@
-# apigee-hybrid-mcp
+# Apigee Hybrid Read-Only MCP
+
+`apigee-hybrid-readonly-mcp`
 
 A **read-only** MCP server for the Apigee Hybrid control plane. It lets Claude, GitHub Copilot or any MCP client query orgs, environments, proxies, deployments, certificates, products, apps and analytics, across many orgs and tiers, with no way to change anything.
 
 ```mermaid
 flowchart LR
-    C[Claude / Copilot] -- MCP --> S[apigee-hybrid-mcp]
+    C[Claude / Copilot] -- MCP --> S[apigee-hybrid-readonly-mcp]
     S -- "GET only<br/>per-tier identity" --> A[(apigee.googleapis.com)]
     A --- O1[sandbox orgs] & O2[nonprod orgs] & O4[preprod orgs] & O3[prod orgs]
 ```
@@ -18,14 +20,14 @@ flowchart LR
 Requires Python 3.11+.
 
 ```bash
-git clone <this repo> && cd apigee-hybrid-mcp
-python3 -m venv ~/.venvs/apigee-mcp && ~/.venvs/apigee-mcp/bin/pip install -e '.[google]'
+git clone <this repo> && cd apigee-hybrid-readonly-mcp
+python3 -m venv ~/.venvs/apigee-hybrid-readonly-mcp && ~/.venvs/apigee-hybrid-readonly-mcp/bin/pip install -e '.[google]'
 
-mkdir -p ~/.config/apigee-mcp
-cp apigee-orgs.example.toml ~/.config/apigee-mcp/apigee-orgs.toml   # edit: your orgs, tiers, reader SAs
+mkdir -p ~/.config/apigee-hybrid-readonly-mcp
+cp apigee-orgs.example.toml ~/.config/apigee-hybrid-readonly-mcp/apigee-orgs.toml   # edit: your orgs, tiers, reader SAs
 
 gcloud auth login
-APIGEE_CONFIG=~/.config/apigee-mcp/apigee-orgs.toml ~/.venvs/apigee-mcp/bin/apigee-hybrid-mcp --check
+APIGEE_CONFIG=~/.config/apigee-hybrid-readonly-mcp/apigee-orgs.toml ~/.venvs/apigee-hybrid-readonly-mcp/bin/apigee-hybrid-readonly-mcp --check
 ```
 
 `--check` probes every configured org and prints `OK` or the reason it failed.
@@ -33,14 +35,14 @@ APIGEE_CONFIG=~/.config/apigee-mcp/apigee-orgs.toml ~/.venvs/apigee-mcp/bin/apig
 To query a single org without a config file:
 
 ```bash
-APIGEE_AUTH=gcloud APIGEE_ORG=my-org apigee-hybrid-mcp --check
+APIGEE_AUTH=gcloud APIGEE_ORG=my-org apigee-hybrid-readonly-mcp --check
 ```
 
 ## Connect a client
 
 | Client | How |
 |---|---|
-| Claude Code | `claude mcp add apigee-hybrid -e APIGEE_CONFIG=$HOME/.config/apigee-mcp/apigee-orgs.toml -- ~/.venvs/apigee-mcp/bin/apigee-hybrid-mcp` |
+| Claude Code | `claude mcp add apigee-hybrid-readonly -e APIGEE_CONFIG=$HOME/.config/apigee-hybrid-readonly-mcp/apigee-orgs.toml -- ~/.venvs/apigee-hybrid-readonly-mcp/bin/apigee-hybrid-readonly-mcp` |
 | Claude Desktop | Add it under `mcpServers` in `claude_desktop_config.json`, with the same command and env |
 | VS Code Copilot (agent mode) | [`.vscode/mcp.json`](.vscode/mcp.json): see [docs/github-copilot.md](docs/github-copilot.md) |
 | Copilot CLI / coding agent | [docs/github-copilot.md](docs/github-copilot.md) |

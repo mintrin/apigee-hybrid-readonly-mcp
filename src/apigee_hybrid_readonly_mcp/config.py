@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
-log = logging.getLogger("apigee_mcp.config")
+log = logging.getLogger("apigee_hybrid_readonly_mcp.config")
 
 DEFAULT_BASE_URL = "https://apigee.googleapis.com/v1"
 AUTH_METHODS = ("auto", "adc", "gcloud")

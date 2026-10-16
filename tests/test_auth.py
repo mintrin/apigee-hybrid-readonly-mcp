@@ -11,9 +11,9 @@ import logging
 import unittest
 from unittest import mock
 
-from apigee_mcp import auth
-from apigee_mcp.auth import AuthError, GcloudCliProvider, GoogleAuthProvider, StaticTokenProvider, build_token_provider
-from apigee_mcp.config import ConfigError, CredSpec, Registry
+from apigee_hybrid_readonly_mcp import auth
+from apigee_hybrid_readonly_mcp.auth import AuthError, GcloudCliProvider, GoogleAuthProvider, StaticTokenProvider, build_token_provider
+from apigee_hybrid_readonly_mcp.config import ConfigError, CredSpec, Registry
 
 GCLOUD = "/usr/bin/gcloud"
 
@@ -28,7 +28,7 @@ def fake_run(stdout: str):
     return run, calls
 
 
-logging.getLogger("apigee_mcp").setLevel(logging.ERROR)  # keep test output readable
+logging.getLogger("apigee_hybrid_readonly_mcp").setLevel(logging.ERROR)  # keep test output readable
 
 
 class FakeCreds:

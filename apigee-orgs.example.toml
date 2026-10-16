@@ -1,4 +1,4 @@
-# apigee-hybrid-mcp org registry
+# apigee-hybrid-readonly-mcp org registry
 # Point the server at it with:  APIGEE_CONFIG=/path/to/apigee-orgs.toml
 #
 # Settings inherit:  [defaults]  ->  [tiers.<tier>]  ->  [orgs.<org>]

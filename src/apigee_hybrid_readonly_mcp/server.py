@@ -1,4 +1,4 @@
-"""MCP server exposing read-only tools over the Apigee Hybrid control plane."""
+"""Apigee Hybrid Read-Only MCP: read-only tools over the Apigee Hybrid control plane."""
 
 from __future__ import annotations
 
@@ -18,15 +18,15 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import ToolAnnotations
 from pydantic import Field
 
-from . import __version__
+from . import PRODUCT_NAME, __version__
 from .auth import AuthError
 from .client import TOOL_ERRORS, ApigeeClient, seg, to_text
 from .config import ConfigError, Registry
 
-log = logging.getLogger("apigee_mcp")
+log = logging.getLogger("apigee_hybrid_readonly_mcp")
 
 INSTRUCTIONS = """\
-Read-only access to the Apigee Hybrid management plane (apigee.googleapis.com).
+Apigee Hybrid Read-Only MCP: read-only access to the Apigee Hybrid management plane (apigee.googleapis.com).
 Nothing here can create, change, deploy or delete anything.
 
 Multiple orgs: call list_configured_orgs first to see org names, aliases and tiers
@@ -51,7 +51,9 @@ async def _lifespan(_server: MCPServer) -> AsyncIterator[None]:
             await _client.aclose()
 
 
-mcp = MCPServer(name="apigee-hybrid", instructions=INSTRUCTIONS, version=__version__, lifespan=_lifespan)
+mcp = MCPServer(
+    name="apigee-hybrid-readonly", title=PRODUCT_NAME, instructions=INSTRUCTIONS, version=__version__, lifespan=_lifespan
+)
 
 # Bounded numeric arguments: the model can't ask for absurd page sizes or windows.
 PageSize = Annotated[int, Field(ge=1, le=1000)]
@@ -650,7 +652,7 @@ def _is_loopback(host: str) -> bool:
 async def _check(c: ApigeeClient) -> int:
     """Probe every configured org; returns the process exit code."""
     reg = c.registry
-    print(f"apigee-hybrid-mcp {__version__}")
+    print(f"apigee-hybrid-readonly-mcp {__version__}")
     print(f"config: {reg.source}  default org: {reg.default_org}  tiers: {', '.join(reg.tiers) or '-'}")
     try:
         if not reg.orgs:  # open mode
@@ -680,12 +682,12 @@ async def _check(c: ApigeeClient) -> int:
 
 
 def main(argv: list[str] | None = None) -> None:
-    p = argparse.ArgumentParser(description="Read-only MCP server for the Apigee Hybrid control plane")
+    p = argparse.ArgumentParser(prog="apigee-hybrid-readonly-mcp", description=f"{PRODUCT_NAME}: read-only MCP server for the Apigee Hybrid control plane")
     p.add_argument("--transport", choices=["stdio", "streamable-http"], default=os.environ.get("MCP_TRANSPORT", "stdio"))
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8080)
     p.add_argument("--check", action="store_true", help="verify credentials and access for every configured org, then exit")
-    p.add_argument("--version", action="version", version=f"apigee-hybrid-mcp {__version__}")
+    p.add_argument("--version", action="version", version=f"apigee-hybrid-readonly-mcp {__version__}")
     args = p.parse_args(argv)
 
     # stdout is the MCP channel in stdio mode: all logging goes to stderr.
@@ -702,12 +704,12 @@ def main(argv: list[str] | None = None) -> None:
     try:
         c = ApigeeClient(Registry.load())
     except (ConfigError, AuthError) as e:
-        print(f"apigee-hybrid-mcp: configuration error: {e}", file=sys.stderr)
+        print(f"apigee-hybrid-readonly-mcp: configuration error: {e}", file=sys.stderr)
         sys.exit(2)
     set_client(c)
     reg = c.registry
     log.info(
-        "apigee-hybrid-mcp %s: %d orgs, tiers=%s, open_mode=%s, redact=%s, source=%s",
+        "apigee-hybrid-readonly-mcp %s: %d orgs, tiers=%s, open_mode=%s, redact=%s, source=%s",
         __version__, len(reg.orgs), ",".join(reg.tiers) or "-", reg.open_mode, reg.redact_secrets, reg.source,
     )
     if reg.open_mode:
@@ -728,6 +730,15 @@ def main(argv: list[str] | None = None) -> None:
                 args.host, args.port,
             )
         mcp.run("streamable-http", host=args.host, port=args.port)
+
+
+def main_legacy() -> None:
+    """Old command name (`apigee-hybrid-mcp`, before 0.4.0). Kept so existing client configs keep working."""
+    print(
+        "apigee-hybrid-mcp is deprecated and will be removed in 0.5.0; use apigee-hybrid-readonly-mcp instead.",
+        file=sys.stderr,
+    )
+    main()
 
 
 if __name__ == "__main__":

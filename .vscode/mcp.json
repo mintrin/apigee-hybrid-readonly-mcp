@@ -1,18 +1,18 @@
 {
   "servers": {
-    "apigee-hybrid": {
+    "apigee-hybrid-readonly": {
       "type": "stdio",
-      "command": "${userHome}/.venvs/apigee-mcp/bin/apigee-hybrid-mcp",
+      "command": "${userHome}/.venvs/apigee-hybrid-readonly-mcp/bin/apigee-hybrid-readonly-mcp",
       "env": {
-        "APIGEE_CONFIG": "${userHome}/.config/apigee-mcp/apigee-orgs.toml",
+        "APIGEE_CONFIG": "${userHome}/.config/apigee-hybrid-readonly-mcp/apigee-orgs.toml",
         "APIGEE_TIERS": "sandbox,nonprod"
       }
     },
-    "apigee-hybrid-prod": {
+    "apigee-hybrid-readonly-prod": {
       "type": "stdio",
-      "command": "${userHome}/.venvs/apigee-mcp/bin/apigee-hybrid-mcp",
+      "command": "${userHome}/.venvs/apigee-hybrid-readonly-mcp/bin/apigee-hybrid-readonly-mcp",
       "env": {
-        "APIGEE_CONFIG": "${userHome}/.config/apigee-mcp/apigee-orgs.toml",
+        "APIGEE_CONFIG": "${userHome}/.config/apigee-hybrid-readonly-mcp/apigee-orgs.toml",
         "APIGEE_TIERS": "preprod,prod"
       }
     }

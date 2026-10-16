@@ -23,4 +23,4 @@ jobs:
       - name: Unit tests (no network, no credentials)
         run: python -m unittest discover -s tests -v
       - name: Example config is valid
-        run: APIGEE_CONFIG=apigee-orgs.example.toml python -c "from apigee_mcp.config import Registry; r = Registry.load(); print(len(r.orgs), 'orgs', r.tiers)"
+        run: APIGEE_CONFIG=apigee-orgs.example.toml python -c "from apigee_hybrid_readonly_mcp.config import Registry; r = Registry.load(); print(len(r.orgs), 'orgs', r.tiers)"

@@ -15,10 +15,10 @@ import httpx2 as httpx
 
 from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 
-from apigee_mcp import server
-from apigee_mcp.client import ApigeeClient, ForbiddenOperation
-from apigee_mcp.config import OrgConfig, Registry
-from apigee_mcp.redact import redact
+from apigee_hybrid_readonly_mcp import server
+from apigee_hybrid_readonly_mcp.client import ApigeeClient, ForbiddenOperation
+from apigee_hybrid_readonly_mcp.config import OrgConfig, Registry
+from apigee_hybrid_readonly_mcp.redact import redact
 
 ORG = "acme-hybrid"
 NOW_MS = int(dt.datetime.now(dt.timezone.utc).timestamp() * 1000)
@@ -57,7 +57,7 @@ FAKE: dict[tuple[str, str], object] = {
 }
 
 
-logging.getLogger("apigee_mcp").setLevel(logging.ERROR)  # keep test output readable
+logging.getLogger("apigee_hybrid_readonly_mcp").setLevel(logging.ERROR)  # keep test output readable
 
 
 class Recorder:

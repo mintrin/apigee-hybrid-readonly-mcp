@@ -14,9 +14,9 @@ import httpx2 as httpx
 
 from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 
-from apigee_mcp import server
-from apigee_mcp.client import ApigeeClient
-from apigee_mcp.config import ConfigError, CredSpec, Registry, UnknownOrg
+from apigee_hybrid_readonly_mcp import server
+from apigee_hybrid_readonly_mcp.client import ApigeeClient
+from apigee_hybrid_readonly_mcp.config import ConfigError, CredSpec, Registry, UnknownOrg
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -38,7 +38,7 @@ CONFIG = {
 DEPLOYED = {"sbx-1": "12", "sbx-2": "12", "dev-us": "11", "pp-us": "10", "prod-us": "9"}
 
 
-logging.getLogger("apigee_mcp").setLevel(logging.ERROR)  # keep test output readable
+logging.getLogger("apigee_hybrid_readonly_mcp").setLevel(logging.ERROR)  # keep test output readable
 
 
 class TierTokens:

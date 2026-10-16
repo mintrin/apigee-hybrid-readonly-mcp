@@ -1,4 +1,4 @@
-# Copilot coding agent setup for the apigee-hybrid MCP server.
+# Copilot coding agent setup for the apigee-hybrid-readonly MCP server.
 #
 # Copy this file into the repository Copilot works in (e.g. your proxy-bundle repo)
 # at .github/workflows/copilot-setup-steps.yml. GitHub runs the job named
@@ -8,7 +8,7 @@
 #   vars.GCP_WORKLOAD_IDENTITY_PROVIDER  projects/<num>/locations/global/workloadIdentityPools/github/providers/github
 #   vars.GCP_SERVICE_ACCOUNT             apigee-mcp-copilot@<project>.iam.gserviceaccount.com
 #   vars.APIGEE_ORGS_TOML                TOML for the NON-PROD orgs only (see apigee-orgs.example.toml)
-#   vars.APIGEE_MCP_SOURCE               pip spec, e.g. git+https://github.com/<owner>/apigee-hybrid-mcp@v0.2.0
+#   vars.APIGEE_MCP_SOURCE               pip spec, e.g. git+https://github.com/<owner>/apigee-hybrid-readonly-mcp@v0.4.0
 #
 # And the MCP configuration in Settings > Copilot > MCP servers (docs/github-copilot.md).
 
@@ -35,10 +35,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install apigee-hybrid-mcp into a fixed venv
+      - name: Install apigee-hybrid-readonly-mcp into a fixed venv
         run: |
-          python -m venv /home/runner/apigee-mcp
-          /home/runner/apigee-mcp/bin/pip install --quiet "apigee-hybrid-mcp[google] @ ${{ vars.APIGEE_MCP_SOURCE }}"
+          python -m venv /home/runner/apigee-hybrid-readonly-mcp
+          /home/runner/apigee-hybrid-readonly-mcp/bin/pip install --quiet "apigee-hybrid-readonly-mcp[google] @ ${{ vars.APIGEE_MCP_SOURCE }}"
 
       - name: Authenticate to Google Cloud (OIDC, no keys)
         id: gcp
@@ -62,4 +62,4 @@ jobs:
           APIGEE_CONFIG: /home/runner/apigee-orgs.toml
           APIGEE_TIERS: sandbox,nonprod
           APIGEE_AUTH: adc
-        run: /home/runner/apigee-mcp/bin/apigee-hybrid-mcp --check
+        run: /home/runner/apigee-hybrid-readonly-mcp/bin/apigee-hybrid-readonly-mcp --check

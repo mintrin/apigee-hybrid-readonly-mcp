@@ -1,4 +1,4 @@
-# Design: apigee-hybrid-mcp
+# Design: Apigee Hybrid Read-Only MCP
 
 **Status:** v0.3, implemented and audited ([security-audit.md](security-audit.md))  
 **Scope:** read-only access to the Apigee Hybrid control plane for AI assistants, across many orgs and tiers
@@ -36,7 +36,7 @@ flowchart LR
         CA[Copilot coding agent<br/>GitHub Actions runner]
     end
 
-    subgraph MCP["apigee-hybrid-mcp (local process)"]
+    subgraph MCP["apigee-hybrid-readonly-mcp (local process)"]
         T[Tools layer<br/>36 read-only tools]
         R[Org registry<br/>orgs · tiers · aliases]
         C[Read-only client<br/>path validation · GET only]

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.0: rebranded as Apigee Hybrid Read-Only MCP
+
+The project is renamed so the read-only guarantee is part of the name. Behavior, tools, configuration format and `APIGEE_*` environment variables are unchanged.
+
+| | Before | Now |
+|---|---|---|
+| Package and command | `apigee-hybrid-mcp` | `apigee-hybrid-readonly-mcp` |
+| Python module | `apigee_mcp` | `apigee_hybrid_readonly_mcp` |
+| MCP server name | `apigee-hybrid` | `apigee-hybrid-readonly` (title "Apigee Hybrid Read-Only MCP") |
+| Suggested venv / config dirs | `~/.venvs/apigee-mcp`, `~/.config/apigee-mcp` | `~/.venvs/apigee-hybrid-readonly-mcp`, `~/.config/apigee-hybrid-readonly-mcp` |
+
+Migrating:
+1. Reinstall with `pip install -e '.[google]'` in the renamed checkout. The old `apigee-hybrid-mcp` command still works, prints a deprecation warning, and will be removed in 0.5.0.
+2. In client configs (`claude mcp add`, `.vscode/mcp.json`, Copilot MCP settings), point at `apigee-hybrid-readonly-mcp`. Optionally rename the server key to `apigee-hybrid-readonly`.
+   - Tool names that clients prefix with the server key change with it, for example `mcp__apigee-hybrid__*` becomes `mcp__apigee-hybrid-readonly__*`. Update any allowlists or permission rules that reference them.
+3. Moving your config and venv directories is optional, since `APIGEE_CONFIG` can point anywhere.
+4. For the Copilot coding agent, update `vars.APIGEE_MCP_SOURCE` to the renamed repo or tag.
+
 ## 0.3.0: production hardening
 
 Security and the read-only guarantee:
