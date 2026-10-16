@@ -4,18 +4,24 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import datetime as dt
 import functools
+import ipaddress
 import logging
 import os
 import sys
-from typing import Any, Literal
+from typing import Annotated, Any, AsyncIterator, Literal
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import ToolAnnotations
+from pydantic import Field
 
+from . import __version__
+from .auth import AuthError
 from .client import TOOL_ERRORS, ApigeeClient, seg, to_text
-from .config import Registry
+from .config import ConfigError, Registry
 
 log = logging.getLogger("apigee_mcp")
 
@@ -35,7 +41,22 @@ runtime wiring; check_certificate_expiry for TLS housekeeping; query_stats for t
 Credential-like fields (consumer secrets, passwords, KVM values) are masked.
 """
 
-mcp = MCPServer(name="apigee-hybrid", instructions=INSTRUCTIONS, version="0.2.0")
+
+@contextlib.asynccontextmanager
+async def _lifespan(_server: MCPServer) -> AsyncIterator[None]:
+    try:
+        yield
+    finally:
+        if _client is not None:
+            await _client.aclose()
+
+
+mcp = MCPServer(name="apigee-hybrid", instructions=INSTRUCTIONS, version=__version__, lifespan=_lifespan)
+
+# Bounded numeric arguments: the model can't ask for absurd page sizes or windows.
+PageSize = Annotated[int, Field(ge=1, le=1000)]
+StatsLimit = Annotated[int, Field(ge=1, le=14400)]
+Days = Annotated[int, Field(ge=0, le=3650)]
 
 RO = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True)
 
@@ -56,10 +77,7 @@ def set_client(c: ApigeeClient) -> None:
 
 
 async def _get(path: str, params: dict[str, Any] | None = None) -> str:
-    try:
-        return to_text(await client().get(path, params))
-    except TOOL_ERRORS as e:
-        return f"Error: {e}"
+    return to_text(await client().get(path, params))
 
 
 def _o(org: str | None) -> str:
@@ -67,14 +85,16 @@ def _o(org: str | None) -> str:
 
 
 def _guard(fn):
-    """Turn validation errors raised while building a path into tool errors."""
+    """Report expected failures (API errors, rejected input, unknown org, auth) as MCP
+    tool errors (isError=true) with a useful message. Anything else is a bug: the SDK
+    logs the traceback and the model only sees a generic error."""
 
     @functools.wraps(fn)
     async def wrapper(*a, **kw):
         try:
             return await fn(*a, **kw)
         except TOOL_ERRORS as e:
-            return f"Error: {e}"
+            raise ToolError(str(e)) from e
 
     return wrapper
 
@@ -107,14 +127,11 @@ async def get_project_mapping(org: str | None = None) -> str:
 @tool
 async def get_sync_authorization(org: str | None = None) -> str:
     """Hybrid: service-account identities allowed to run the synchronizer (pull runtime contracts)."""
-    try:
-        return to_text(await client().read_post(_o(org) + ":getSyncAuthorization"))
-    except TOOL_ERRORS as e:
-        return f"Error: {e}"
+    return to_text(await client().read_post(_o(org) + ":getSyncAuthorization"))
 
 
 @tool
-async def list_operations(org: str | None = None, filter: str | None = None, page_size: int = 50) -> str:
+async def list_operations(org: str | None = None, filter: str | None = None, page_size: PageSize = 50) -> str:
     """Long-running operations in the org (env creation, attachments, etc.), most useful to see stuck/failed ones."""
     return await _get(_o(org) + "/operations", {"filter": filter, "pageSize": page_size})
 
@@ -151,7 +168,8 @@ async def get_envgroup(envgroup: str, org: str | None = None) -> str:
     """One environment group, its hostnames and which environments are attached to it."""
     base = f"{_o(org)}/envgroups/{seg(envgroup, 'envgroup')}"
     group, attachments = await asyncio.gather(client().get(base), client().get(base + "/attachments"))
-    return to_text({"envgroup": group, "attachments": attachments.get("environmentGroupAttachments", [])})
+    items = attachments.get("environmentGroupAttachments", []) if isinstance(attachments, dict) else []
+    return to_text({"envgroup": group, "attachments": items})
 
 
 # ---------------------------------------------------------------- proxies & shared flows
@@ -260,46 +278,71 @@ async def get_flowhook(env: str, flowhook: Literal["PreProxyFlowHook", "PostProx
 
 
 @tool
-async def check_certificate_expiry(env: str, org: str | None = None, warn_days: int = 30) -> str:
+async def check_certificate_expiry(env: str, org: str | None = None, warn_days: Days = 30) -> str:
     """Scan every keystore/truststore alias in an environment and report certificates that are expired
-    or expire within `warn_days`. Returns all certs sorted by expiry."""
+    or expire within `warn_days`. Returns all certs sorted by expiry; aliases that could not be read
+    are listed under `errors`."""
     c = client()
     base = f"{_o(org)}/environments/{seg(env, 'env')}/keystores"
-    keystores = await c.get(base)
-    names = keystores if isinstance(keystores, list) else keystores.get("keystores", [])
-    sem = asyncio.Semaphore(8)
+    listing = await c.get(base)
+    names = listing if isinstance(listing, list) else (listing or {}).get("keystores", [])
+    sem = asyncio.Semaphore(c.registry.max_parallel)
     now = dt.datetime.now(dt.timezone.utc)
     rows: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
 
-    async def one(ks: str, alias: str) -> None:
+    async def fetch(path: str) -> Any:
         async with sem:
-            info = await c.get(f"{base}/{seg(ks)}/aliases/{seg(alias)}")
-        for cert in (info.get("certsInfo") or {}).get("certInfo", []):
-            exp_ms = int(cert.get("expiryDate", 0))
-            exp = dt.datetime.fromtimestamp(exp_ms / 1000, dt.timezone.utc) if exp_ms else None
+            return await c.get(path)
+
+    async def keystore(ks: str) -> None:
+        try:
+            detail = await fetch(f"{base}/{seg(ks, 'keystore')}")
+        except TOOL_ERRORS as e:
+            errors.append({"keystore": ks, "error": str(e)})
+            return
+        aliases = detail.get("aliases", []) if isinstance(detail, dict) else []
+        await asyncio.gather(*(alias(ks, a) for a in aliases if isinstance(a, str)))
+
+    async def alias(ks: str, name: str) -> None:
+        try:
+            info = await fetch(f"{base}/{seg(ks, 'keystore')}/aliases/{seg(name, 'alias')}")
+        except TOOL_ERRORS as e:
+            errors.append({"keystore": ks, "alias": name, "error": str(e)})
+            return
+        certs = ((info or {}).get("certsInfo") or {}).get("certInfo", []) if isinstance(info, dict) else []
+        for cert in certs:
+            exp = _parse_epoch_ms(cert.get("expiryDate"))
             days = (exp - now).days if exp else None
             rows.append(
                 {
                     "keystore": ks,
-                    "alias": alias,
+                    "alias": name,
                     "subject": cert.get("subject"),
                     "issuer": cert.get("issuer"),
                     "expires": exp.isoformat() if exp else None,
                     "daysLeft": days,
-                    "status": "EXPIRED" if days is not None and days < 0
-                    else "EXPIRING" if days is not None and days <= warn_days
+                    "status": "UNKNOWN" if days is None
+                    else "EXPIRED" if days < 0
+                    else "EXPIRING" if days <= warn_days
                     else "OK",
                 }
             )
 
-    tasks = []
-    for ks in names:
-        ks_detail = await c.get(f"{base}/{seg(ks)}")
-        tasks += [one(ks, a) for a in ks_detail.get("aliases", [])]
-    await asyncio.gather(*tasks)
-    rows.sort(key=lambda r: (r["daysLeft"] is None, r["daysLeft"] if r["daysLeft"] is not None else 0))
-    flagged = [r for r in rows if r["status"] != "OK"]
-    return to_text({"environment": env, "warnDays": warn_days, "flagged": len(flagged), "certificates": rows})
+    await asyncio.gather(*(keystore(ks) for ks in names if isinstance(ks, str)))
+    rows.sort(key=lambda r: (r["daysLeft"] is None, r["daysLeft"] or 0, r["keystore"], r["alias"]))
+    flagged = [r for r in rows if r["status"] in ("EXPIRED", "EXPIRING")]
+    return to_text(
+        {"environment": env, "warnDays": warn_days, "flagged": len(flagged), "certificates": rows, "errors": errors}
+    )
+
+
+def _parse_epoch_ms(value: Any) -> dt.datetime | None:
+    try:
+        ms = int(value)
+        return dt.datetime.fromtimestamp(ms / 1000, dt.timezone.utc) if ms > 0 else None
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
 
 
 # ---------------------------------------------------------------- key value maps
@@ -311,11 +354,11 @@ async def list_kvms(scope: Literal["org", "env", "proxy"] = "env", env: str | No
     o = _o(org)
     if scope == "env":
         if not env:
-            return "Error: env is required for scope=env"
+            raise ToolError("env is required for scope=env")
         return await _get(f"{o}/environments/{seg(env, 'env')}/keyvaluemaps")
     if scope == "proxy":
         if not api:
-            return "Error: api is required for scope=proxy"
+            raise ToolError("api is required for scope=proxy")
         return await _get(f"{o}/apis/{seg(api, 'api')}/keyvaluemaps")
     return await _get(f"{o}/keyvaluemaps")
 
@@ -327,18 +370,18 @@ async def list_kvm_entries(
     env: str | None = None,
     api: str | None = None,
     org: str | None = None,
-    page_size: int = 100,
+    page_size: PageSize = 100,
     page_token: str | None = None,
 ) -> str:
     """Entry keys in a KVM. Values are hidden unless the server runs with APIGEE_ALLOW_KVM_VALUES=true."""
     o = _o(org)
     if scope == "env":
         if not env:
-            return "Error: env is required for scope=env"
+            raise ToolError("env is required for scope=env")
         base = f"{o}/environments/{seg(env, 'env')}"
     elif scope == "proxy":
         if not api:
-            return "Error: api is required for scope=proxy"
+            raise ToolError("api is required for scope=proxy")
         base = f"{o}/apis/{seg(api, 'api')}"
     else:
         base = o
@@ -349,7 +392,7 @@ async def list_kvm_entries(
 
 
 @tool
-async def list_api_products(org: str | None = None, expand: bool = False, count: int = 100, start_key: str | None = None) -> str:
+async def list_api_products(org: str | None = None, expand: bool = False, count: PageSize = 100, start_key: str | None = None) -> str:
     """API products (names only unless expand=true). Page with count/start_key."""
     return await _get(_o(org) + "/apiproducts", {"expand": str(expand).lower(), "count": count, "startKey": start_key})
 
@@ -361,7 +404,7 @@ async def get_api_product(product: str, org: str | None = None) -> str:
 
 
 @tool
-async def list_developers(org: str | None = None, expand: bool = False, count: int = 100, start_key: str | None = None) -> str:
+async def list_developers(org: str | None = None, expand: bool = False, count: PageSize = 100, start_key: str | None = None) -> str:
     """Developers (emails, or full records with expand=true). Page with count/start_key."""
     return await _get(_o(org) + "/developers", {"expand": str(expand).lower(), "count": count, "startKey": start_key})
 
@@ -373,7 +416,7 @@ async def get_developer(email: str, org: str | None = None) -> str:
 
 
 @tool
-async def list_apps(org: str | None = None, developer: str | None = None, expand: bool = False, rows: int = 100, start_key: str | None = None) -> str:
+async def list_apps(org: str | None = None, developer: str | None = None, expand: bool = False, rows: PageSize = 100, start_key: str | None = None) -> str:
     """Developer apps across the org, or for one developer email. Credentials are masked."""
     if developer:
         return await _get(f"{_o(org)}/developers/{seg(developer, 'developer email')}/apps", {"expand": str(expand).lower()})
@@ -398,7 +441,7 @@ async def query_stats(
     time_unit: Literal["minute", "hour", "day", "week", "month"] | None = None,
     filter: str | None = None,
     sort_by: str | None = None,
-    limit: int = 50,
+    limit: StatsLimit = 50,
     org: str | None = None,
 ) -> str:
     """Analytics stats for an environment (Apigee stats API).
@@ -413,7 +456,9 @@ async def query_stats(
         start = end - dt.timedelta(hours=24)
         time_range = f"{start:%m/%d/%Y %H:%M}~{end:%m/%d/%Y %H:%M}"
     dims = ",".join(seg(d.strip(), "dimension") for d in dimensions.split(",") if d.strip())
-    return await _get(
+    if not dims:
+        raise ToolError("dimensions must name at least one dimension, e.g. 'apiproxy'")
+    data = await client().get(
         f"{_o(org)}/environments/{seg(env, 'env')}/stats/{dims}",
         {
             "select": select,
@@ -425,6 +470,35 @@ async def query_stats(
             "limit": limit,
         },
     )
+    return to_text(_mask_credential_dimensions(data, dims.split(",")))
+
+
+# Dimensions whose values are credentials (consumer keys / tokens), not names.
+_CREDENTIAL_DIMENSIONS = {"client_id", "api_key", "access_token", "developer_app_key", "consumer_key"}
+
+
+def _mask_credential_dimensions(data: Any, dims: list[str]) -> Any:
+    """Stats responses carry dimension values in `dimensions[].name` (multi-dimension values
+    joined with ","). If a credential dimension was requested, mask its values by position;
+    if positions can't be matched, mask every part rather than guess."""
+    secret_pos = {i for i, d in enumerate(dims) if d.lower() in _CREDENTIAL_DIMENSIONS}
+    if not secret_pos or not isinstance(data, dict):
+        return data
+    for env in data.get("environments") or []:
+        if not isinstance(env, dict):
+            continue
+        for dim in env.get("dimensions") or []:
+            if isinstance(dim, dict) and isinstance(dim.get("name"), str):
+                parts = dim["name"].split(",")
+                positional = len(parts) == len(dims)
+                dim["name"] = ",".join(
+                    _mask_value(p) if (not positional or i in secret_pos) else p for i, p in enumerate(parts)
+                )
+    return data
+
+
+def _mask_value(v: str) -> str:
+    return f"****{v[-4:]}" if len(v) > 8 else "****"
 
 
 @tool
@@ -480,8 +554,8 @@ async def across_orgs(
     """
     c = client()
     rel = resource.strip().strip("/")
-    if rel.startswith("organizations/"):
-        return "Error: `resource` is relative to the org, e.g. 'environments' (not organizations/...)."
+    if not rel or rel.startswith("organizations/") or rel == "organizations":
+        raise ToolError("`resource` is a path relative to the org, e.g. 'environments' (not organizations/...).")
     selected = c.registry.select(tier=tier, orgs=orgs)
     results = await c.for_each_org(selected, lambda o: c.get(f"organizations/{o.name}/{rel}", params))
     return to_text({"resource": rel, "tier": tier, "orgCount": len(selected), "results": results})
@@ -513,12 +587,12 @@ async def find_api_deployments(
     by_tier: dict[str, set[str]] = {}
     for org_name, data in raw.items():
         if isinstance(data, dict) and "error" in data:
-            if "HTTP 404" in data["error"]:
+            if data.get("status") == 404:
                 not_found.append(org_name)
             else:
                 errors[org_name] = data["error"]
             continue
-        deps = data.get("deployments", []) if isinstance(data, dict) else []
+        deps = [d for d in (data.get("deployments") or [] if isinstance(data, dict) else []) if isinstance(d, dict)]
         if not deps:
             rows.append({"org": org_name, "tier": tiers[org_name], "environment": None, "revision": None, "note": "exists, not deployed"})
         for d in deps:
@@ -564,50 +638,95 @@ async def apigee_get(path: str, params: dict[str, str] | None = None) -> str:
 # ---------------------------------------------------------------- entry point
 
 
-def main() -> None:
+def _is_loopback(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+async def _check(c: ApigeeClient) -> int:
+    """Probe every configured org; returns the process exit code."""
+    reg = c.registry
+    print(f"apigee-hybrid-mcp {__version__}")
+    print(f"config: {reg.source}  default org: {reg.default_org}  tiers: {', '.join(reg.tiers) or '-'}")
+    try:
+        if not reg.orgs:  # open mode
+            target = f"organizations/{reg.default_org}" if reg.default_org else "organizations"
+            print(to_text(await c.get(target))[:2000])
+            return 0
+
+        async def probe(o):
+            d = await c.get(f"organizations/{o.name}")
+            return d.get("runtimeType", "?") if isinstance(d, dict) else "?"
+
+        results = await c.for_each_org(list(reg.orgs.values()), probe)
+        failed = 0
+        for o in sorted(reg.orgs.values(), key=lambda o: (reg.tier_rank(o.tier), o.name)):
+            r = results[o.name]
+            ok = not (isinstance(r, dict) and "error" in r)
+            failed += not ok
+            status = f"OK ({r})" if ok else f"FAIL: {r['error'][:160]}"
+            print(f"  [{o.tier:<10}] {o.name:<32} {o.cred.describe():<55} {status}")
+        print(f"{len(reg.orgs) - failed}/{len(reg.orgs)} orgs reachable")
+        return 1 if failed else 0
+    except TOOL_ERRORS as e:
+        print(f"FAIL: {e}", file=sys.stderr)
+        return 1
+    finally:
+        await c.aclose()
+
+
+def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(description="Read-only MCP server for the Apigee Hybrid control plane")
     p.add_argument("--transport", choices=["stdio", "streamable-http"], default=os.environ.get("MCP_TRANSPORT", "stdio"))
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8080)
-    p.add_argument("--check", action="store_true", help="verify credentials and org access, then exit")
-    args = p.parse_args()
+    p.add_argument("--check", action="store_true", help="verify credentials and access for every configured org, then exit")
+    p.add_argument("--version", action="version", version=f"apigee-hybrid-mcp {__version__}")
+    args = p.parse_args(argv)
 
-    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"), stream=sys.stderr)
+    # stdout is the MCP channel in stdio mode: all logging goes to stderr.
+    logging.basicConfig(
+        level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+        stream=sys.stderr,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        force=True,  # the MCP SDK installs its own handler at import; we own the process
+    )
     for noisy in ("httpx2", "httpx", "httpcore", "httpcore2"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
+    # Fail fast on configuration problems, before a client connects.
+    try:
+        c = ApigeeClient(Registry.load())
+    except (ConfigError, AuthError) as e:
+        print(f"apigee-hybrid-mcp: configuration error: {e}", file=sys.stderr)
+        sys.exit(2)
+    set_client(c)
+    reg = c.registry
+    log.info(
+        "apigee-hybrid-mcp %s: %d orgs, tiers=%s, open_mode=%s, redact=%s, source=%s",
+        __version__, len(reg.orgs), ",".join(reg.tiers) or "-", reg.open_mode, reg.redact_secrets, reg.source,
+    )
+    if reg.open_mode:
+        log.warning("open mode: any org name is accepted; set APIGEE_ALLOWED_ORGS or APIGEE_CONFIG to restrict")
+    if not reg.redact_secrets:
+        log.warning("secret redaction is DISABLED")
+
     if args.check:
-        async def check() -> None:
-            c = client()
-            reg = c.registry
-            print(f"config: {reg.source}  default org: {reg.default_org}  tiers: {', '.join(reg.tiers) or '-'}")
-            if not reg.orgs:
-                data = await c.get(f"organizations/{reg.default_org}") if reg.default_org else await c.get("organizations")
-                print(to_text(data)[:2000])
-                return
-
-            async def probe(o):
-                d = await c.get(f"organizations/{o.name}")
-                return d.get("runtimeType", "?")
-
-            results = await c.for_each_org(list(reg.orgs.values()), probe)
-            failed = 0
-            for o in sorted(reg.orgs.values(), key=lambda o: (reg.tier_rank(o.tier), o.name)):
-                r = results[o.name]
-                ok = not (isinstance(r, dict) and "error" in r)
-                failed += not ok
-                status = f"OK ({r})" if ok else f"FAIL: {r['error'][:160]}"
-                print(f"  [{o.tier:<10}] {o.name:<32} {o.cred.describe():<55} {status}")
-            print(f"{len(reg.orgs) - failed}/{len(reg.orgs)} orgs reachable")
-            if failed:
-                sys.exit(1)
-
-        asyncio.run(check())
-        return
+        sys.exit(asyncio.run(_check(c)))
 
     if args.transport == "stdio":
         mcp.run("stdio")
     else:
+        if not _is_loopback(args.host):
+            log.warning(
+                "streamable-http on %s:%d has no client authentication: anyone who can reach it can read "
+                "Apigee through this server's credentials. Put it behind IAP or an authenticating proxy.",
+                args.host, args.port,
+            )
         mcp.run("streamable-http", host=args.host, port=args.port)
 
 

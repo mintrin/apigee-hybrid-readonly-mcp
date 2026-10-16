@@ -17,7 +17,8 @@ This repo is a **read-only** MCP server for the Apigee Hybrid management API. Th
 4. Accept `org: str | None = None` and let the registry resolve names and aliases.
 5. For cross-org tools, use `client().registry.select(tier=..., orgs=...)` with `client().for_each_org(...)`, so per-org failures stay inline.
 6. Return `to_text(...)`, which handles truncation. Redaction happens in the client.
-7. Add tests in `tests/` against `httpx2.MockTransport`. The `tearDown` in `test_server.py` asserts that no non-GET request was sent, so keep that pattern.
+7. Never add Google API system parameters (`alt`, `callback`, `fields`, `format`, `$...`, `key`, `*_token`, `quotaUser`) to `_ALLOWED_PARAMS`. They can change the response format and slip past redaction. Never relax the non-JSON fail-closed rule or the debug-session data block.
+8. Add tests in `tests/` against `httpx2.MockTransport`. The `tearDown` in `test_server.py` asserts that no non-GET request was sent, so keep that pattern.
 
 ## Conventions
 - Python 3.11+, MCP SDK 2.x: `from mcp.server.mcpserver import MCPServer`. `FastMCP` no longer exists.

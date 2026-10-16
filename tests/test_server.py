@@ -8,9 +8,12 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import json
+import logging
 import unittest
 
 import httpx2 as httpx
+
+from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 
 from apigee_mcp import server
 from apigee_mcp.client import ApigeeClient, ForbiddenOperation
@@ -54,6 +57,9 @@ FAKE: dict[tuple[str, str], object] = {
 }
 
 
+logging.getLogger("apigee_mcp").setLevel(logging.ERROR)  # keep test output readable
+
+
 class Recorder:
     def __init__(self) -> None:
         self.requests: list[httpx.Request] = []
@@ -74,7 +80,14 @@ class FakeTokens:
 
 
 def call(name: str, args: dict | None = None) -> str:
-    result = asyncio.run(server.mcp.call_tool(name, args or {}))
+    """Invoke a tool like an MCP client would. Expected failures (ToolError -> isError=true)
+    come back as 'Error: ...'; a crash (UnexpectedToolError) fails the test."""
+    try:
+        result = asyncio.run(server.mcp.call_tool(name, args or {}))
+    except UnexpectedToolError:
+        raise
+    except ToolError as e:
+        return f"Error: {e}"
     return "".join(getattr(c, "text", "") for c in result.content)
 
 
@@ -160,7 +173,8 @@ class ServerTests(unittest.TestCase):
 
     def test_api_errors_surface_cleanly(self):
         out = call("get_api_proxy", {"api": "missing"})
-        self.assertTrue(out.startswith("Error: HTTP 404"), out)
+        self.assertTrue(out.startswith("Error"), out)
+        self.assertIn("HTTP 404 on /organizations/acme-hybrid/apis/missing", out)
 
     def test_all_tools_are_annotated_read_only(self):
         tools = asyncio.run(server.mcp.list_tools())

@@ -34,6 +34,13 @@ from .config import CredSpec
 
 SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 _GCLOUD_TOKEN_TTL_S = 45 * 60  # gcloud does not report expiry; tokens last 60 min
+_GCLOUD_TIMEOUT_S = 60
+
+
+def _short(msg: object, limit: int = 500) -> str:
+    """One-line, bounded error text (gcloud / google-auth errors can be long)."""
+    text = " ".join(str(msg or "").split())
+    return text if len(text) <= limit else text[:limit] + "..."
 
 
 class AuthError(RuntimeError):
@@ -45,6 +52,10 @@ class TokenProvider(Protocol):
 
     async def token(self) -> str: ...
 
+    def invalidate(self) -> None:
+        """Drop any cached token so the next token() call fetches a fresh one (after a 401)."""
+        ...
+
 
 class StaticTokenProvider:
     def __init__(self, token: str) -> None:
@@ -54,6 +65,9 @@ class StaticTokenProvider:
     async def token(self) -> str:
         return self._token
 
+    def invalidate(self) -> None:
+        pass  # nothing to refresh; a 401 surfaces to the caller
+
 
 class GoogleAuthProvider:
     """Wraps any google-auth Credentials object and refreshes it when needed."""
@@ -61,7 +75,11 @@ class GoogleAuthProvider:
     def __init__(self, creds: Any, description: str) -> None:
         self._creds = creds
         self._lock = asyncio.Lock()
+        self._force_refresh = False
         self.description = description
+
+    def invalidate(self) -> None:
+        self._force_refresh = True
 
     def _refresh_sync(self) -> None:
         import google.auth.transport.requests
@@ -71,11 +89,14 @@ class GoogleAuthProvider:
     async def token(self) -> str:
         async with self._lock:
             # `valid` is False with no token or within google-auth's refresh threshold.
-            if not self._creds.valid:
+            if self._force_refresh or not self._creds.valid:
                 try:
                     await asyncio.to_thread(self._refresh_sync)
                 except Exception as e:
-                    raise AuthError(f"{self.description}: token refresh failed: {e}") from e
+                    raise AuthError(f"{self.description}: token refresh failed: {_short(e)}") from e
+                self._force_refresh = False
+            if not self._creds.token:
+                raise AuthError(f"{self.description}: no access token after refresh")
             return self._creds.token
 
 
@@ -93,13 +114,25 @@ class GcloudCliProvider:
             f" impersonating {impersonate}" if impersonate else ""
         )
 
+    def invalidate(self) -> None:
+        self._token = None
+
     def _fetch_sync(self) -> str:
         try:
-            out = subprocess.run(self._cmd, capture_output=True, text=True, timeout=60, check=True)
+            out = subprocess.run(
+                self._cmd, capture_output=True, text=True, timeout=_GCLOUD_TIMEOUT_S, check=True, stdin=subprocess.DEVNULL
+            )
         except subprocess.CalledProcessError as e:
-            raise AuthError(f"{self.description} failed: {e.stderr.strip()}") from e
+            raise AuthError(f"{self.description} failed: {_short(e.stderr)}") from e
+        except subprocess.TimeoutExpired:
+            raise AuthError(f"{self.description} timed out after {_GCLOUD_TIMEOUT_S}s (is gcloud waiting for a login?)") from None
+        except OSError as e:
+            raise AuthError(f"{self.description} could not run: {e}") from e
         # gcloud may print a warning line before the token when impersonating
-        return out.stdout.strip().splitlines()[-1]
+        lines = [ln.strip() for ln in out.stdout.splitlines() if ln.strip()]
+        if not lines or " " in lines[-1]:
+            raise AuthError(f"{self.description} returned no access token")
+        return lines[-1]
 
     async def token(self) -> str:
         async with self._lock:
@@ -162,7 +195,7 @@ def build_token_provider(spec: CredSpec | None = None) -> TokenProvider:
     except ImportError:
         errors.append("google-auth not installed (pip install 'apigee-hybrid-mcp[google]')")
     except Exception as e:  # DefaultCredentialsError, bad key file, ...
-        errors.append(f"google-auth: {e}")
+        errors.append(f"google-auth: {_short(e)}")
 
     if spec.auth == "adc" or spec.credentials_file:
         raise AuthError(f"{spec.describe()}: " + "; ".join(errors))

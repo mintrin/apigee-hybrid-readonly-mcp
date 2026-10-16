@@ -1,6 +1,6 @@
 # Design: apigee-hybrid-mcp
 
-**Status:** v0.2, implemented  
+**Status:** v0.3, implemented and audited ([security-audit.md](security-audit.md))  
 **Scope:** read-only access to the Apigee Hybrid control plane for AI assistants, across many orgs and tiers
 
 ## 1. Problem
@@ -162,9 +162,11 @@ Defense in depth. Any single layer is meant to be sufficient on its own:
 |---|---|---|
 | IAM | Reader identities hold only `roles/apigee.readOnlyAdmin` | Any bug in this code |
 | Method allowlist | `_send` refuses anything other than GET, or POST to `:getSyncAuthorization` | A tool or path that tries to write |
-| Path validation | Must be `organizations/{known-org}/...`. Rejects `..`, `?`, `#`, `%`, `://` and `:verb` in sub-paths. Each segment is checked against a charset. | Prompt injection steering `apigee_get` to another org, project, host or custom method |
+| Path validation | Must be `organizations/{known-org}/...`. Every segment is checked against a strict charset, so `..`, `%`, `?`, `#`, `;`, unicode and `:verb` in sub-paths are rejected. Debug-session transaction data is refused. | Prompt injection steering `apigee_get` to another org, project, host, custom method, or a secret-bearing payload |
+| Query-parameter allowlist | Only Apigee list, filter and analytics parameters are accepted. Google system parameters (`alt`, `callback`, `fields`, `$httpMethod`, `key`, `*_token`, `format`) are refused. | Changing the method or identity, or switching the response format to slip past redaction |
+| Response handling | Non-JSON responses fail closed, except on resource-file endpoints, which get a free-text secret scan. Redirects are not followed. Bodies are size-capped. | Leaks through JSONP, proto or ZIP bodies; tokens forwarded to another host; memory exhaustion |
 | Org registry | Unknown orgs fail before any network call. `APIGEE_TIERS` hides whole tiers. | The model guessing org names, or prod access from a dev-only setup |
-| Redaction | Consumer keys and secrets, passwords, tokens and private keys are masked to the last 4 characters. KVM values are hidden per tier. | Secrets landing in chat transcripts or Copilot logs |
+| Redaction | Masks secret-named keys (whole subtree), secret-named attributes, JWK private members, PEM/PGP keys, auth headers, `key=value` text and credential analytics dimensions. KVM values are hidden per tier. | Secrets landing in chat transcripts or Copilot logs |
 | MCP annotations | Every tool sets `readOnlyHint=true` and `destructiveHint=false` | Lets clients auto-approve safely. Copilot code review requires it. |
 
 Residual risks:
@@ -193,12 +195,13 @@ Design choices:
 
 ## 8. Testing
 
-`python -m unittest discover -s tests` runs 41 tests. No network or credentials are needed.
+`python -m unittest discover -s tests` runs 86 tests. No network or credentials are needed.
 
 | File | Covers |
 |---|---|
 | `test_server.py` | Every tool path against a fake API. Asserts that every request is GET (or the one allowlisted POST), and that traversal, query injection, other orgs and write verbs are rejected before any request is sent. |
 | `test_multi_org.py` | Config inheritance, aliases, per-tier credential and base-URL routing, provider caching, fan-out with partial failure, drift summary, `APIGEE_TIERS` |
+| `test_hardening.py` | Retries, 401 refresh, redirects, size caps, the parameter allowlist, segment charset, the redaction rules, fail-closed non-JSON handling, config strictness, CLI exit codes. Includes every reproduction from the independent review. |
 | `test_auth.py` | gcloud user login, specific account, gcloud impersonation (including the warning-line output), ADC service account, ADC user impersonating a tier SA, auto fallback, static-token scoping |
 
 ## 9. Future work

@@ -1,17 +1,26 @@
 [project]
 name = "apigee-hybrid-mcp"
-version = "0.2.0"
+dynamic = ["version"]
 description = "Read-only MCP server for the Apigee Hybrid control plane (management API)"
 readme = "README.md"
 requires-python = ">=3.11"  # tomllib
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+  "Topic :: System :: Systems Administration",
+]
+# Direct imports are declared explicitly rather than relied on transitively.
 dependencies = [
-  "mcp>=2.2,<3",
+  "mcp>=2.2,<3",       # MCPServer API (FastMCP was renamed in 2.x)
+  "mcp-types>=2.2,<3", # ToolAnnotations
+  "httpx2>=2.5,<3",    # HTTP client used by mcp 2.x
+  "pydantic>=2.12,<3", # tool argument bounds
 ]
 
 [project.optional-dependencies]
 # Recommended: Application Default Credentials (service account, workload identity, gcloud ADC).
 # Without it the server falls back to `gcloud auth print-access-token` or APIGEE_ACCESS_TOKEN.
-google = ["google-auth>=2.30", "requests>=2.31"]
+google = ["google-auth>=2.30,<3", "requests>=2.31,<3"]
 
 [project.scripts]
 apigee-hybrid-mcp = "apigee_mcp.server:main"
@@ -19,6 +28,9 @@ apigee-hybrid-mcp = "apigee_mcp.server:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/apigee_mcp/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/apigee_mcp"]

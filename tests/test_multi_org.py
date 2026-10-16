@@ -6,10 +6,13 @@ import asyncio
 import json
 import os
 import pathlib
+import logging
 import unittest
 from unittest import mock
 
 import httpx2 as httpx
+
+from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 
 from apigee_mcp import server
 from apigee_mcp.client import ApigeeClient
@@ -33,6 +36,9 @@ CONFIG = {
 
 # Which proxy revision is deployed in which org (prod-eu doesn't have it; qa-us is denied)
 DEPLOYED = {"sbx-1": "12", "sbx-2": "12", "dev-us": "11", "pp-us": "10", "prod-us": "9"}
+
+
+logging.getLogger("apigee_mcp").setLevel(logging.ERROR)  # keep test output readable
 
 
 class TierTokens:
@@ -72,7 +78,14 @@ def handler(seen: list[httpx.Request]):
 
 
 def call(name: str, args: dict | None = None) -> str:
-    result = asyncio.run(server.mcp.call_tool(name, args or {}))
+    """Invoke a tool like an MCP client would. Expected failures (ToolError -> isError=true)
+    come back as 'Error: ...'; a crash (UnexpectedToolError) fails the test."""
+    try:
+        result = asyncio.run(server.mcp.call_tool(name, args or {}))
+    except UnexpectedToolError:
+        raise
+    except ToolError as e:
+        return f"Error: {e}"
     return "".join(getattr(c, "text", "") for c in result.content)
 
 

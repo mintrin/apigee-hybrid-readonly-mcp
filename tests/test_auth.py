@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import types
+import logging
 import unittest
 from unittest import mock
 
@@ -25,6 +26,9 @@ def fake_run(stdout: str):
         return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
 
     return run, calls
+
+
+logging.getLogger("apigee_mcp").setLevel(logging.ERROR)  # keep test output readable
 
 
 class FakeCreds:

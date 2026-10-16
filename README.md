@@ -60,7 +60,28 @@ See [`apigee-orgs.example.toml`](apigee-orgs.example.toml): 20 orgs in 4 tiers (
 | `APIGEE_IMPERSONATE_SERVICE_ACCOUNT`, `APIGEE_CREDENTIALS_FILE`, `APIGEE_GCLOUD_ACCOUNT` | Credential options without a config file |
 | `APIGEE_ACCESS_TOKEN` | A static token for quick tests |
 | `APIGEE_REDACT_SECRETS` | Default `true` |
-| `APIGEE_MAX_RESPONSE_CHARS` | Default `120000` |
+| `APIGEE_MAX_RESPONSE_CHARS` | Text returned to the model per call. Default `120000`; longer output is truncated with a note. |
+| `APIGEE_MAX_RESPONSE_BYTES` | Hard cap on an API response body. Default 20 MB; larger responses are refused. |
+| `APIGEE_MAX_RETRIES` | Retries for 429, 5xx and network errors, with exponential backoff that honors `Retry-After`. Default `3`. |
+| `APIGEE_TIMEOUT_S` | Per-request timeout, 1–300 seconds. Default `30`. |
+| `LOG_LEVEL` | Default `INFO`. |
+
+The config is validated strictly at startup, and the server refuses to start (exit code 2) on any problem:
+- unknown keys, which catches typos such as `impersonate_serviceaccount`
+- wrong types
+- non-HTTPS API bases
+- malformed names
+- `APIGEE_TIERS` without a config file
+
+A typo in a credential setting can therefore never silently fall back to a broader identity.
+
+## Operations
+
+- **Logs** go to stderr, since stdout is the MCP channel. Each API call logs one line: method, org, path, status, latency and attempt. Tokens and response bodies are never logged.
+- **Tool errors** reach the client as MCP `isError: true` results with a readable message: HTTP status, rejected input, unknown org or auth failure. An unexpected bug is logged with a traceback, and the model sees only a generic error.
+- **Token refresh:** a 401 triggers one token refresh and retry, which covers expired gcloud or ADC tokens.
+- **Redirects** are never followed, so a bearer token can't be carried to another host.
+- **Cross-org tools** report failures per org (`{"error", "status"}`), so one broken org never sinks the whole result.
 
 Credentials are covered in full in [docs/authentication.md](docs/authentication.md).
 
@@ -77,7 +98,7 @@ Credentials are covered in full in [docs/authentication.md](docs/authentication.
 | KVMs | `list_kvms`, `list_kvm_entries` (values hidden unless the tier allows them) |
 | Consumers | `list_api_products`, `get_api_product`, `list_developers`, `get_developer`, `list_apps`, `get_app` |
 | Analytics / debug | `query_stats`, `list_debug_sessions` |
-| Escape hatch | `apigee_get` (any GET under a configured org) |
+| Escape hatch | `apigee_get`: any GET under a configured org, with allowlisted query parameters; debug-session payloads are refused |
 
 Example questions:
 - "Which revision of `orders` is deployed in each org, and where do tiers drift?"
@@ -90,11 +111,13 @@ Example questions:
 - [Design and security model](docs/design.md), with architecture, sequence and auth diagrams
 - [Authentication](docs/authentication.md): service accounts, user logins, impersonation and IAM setup
 - [GitHub Copilot](docs/github-copilot.md): VS Code agent mode, Copilot CLI and the coding agent
+- [Security audit](docs/security-audit.md): v0.3.0 findings and fixes
+- [Changelog](CHANGELOG.md)
 
 ## Development
 
 ```bash
-python -m unittest discover -s tests -v    # 41 tests, no network or credentials
+python -m unittest discover -s tests -v    # 86 tests, no network or credentials
 ```
 
 Contribution rules for tools, which Copilot also reads, are in [.github/copilot-instructions.md](.github/copilot-instructions.md).
