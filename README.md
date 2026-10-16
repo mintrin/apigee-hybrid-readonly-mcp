@@ -126,6 +126,7 @@ Example questions:
 
 ## Docs
 
+- [Build specification](docs/specification.md): the canonical, implementation-level spec (contracts, security rules, acceptance criteria, build plan)
 - [Design and security model](docs/design.md), with architecture, sequence and auth diagrams
 - [Authentication](docs/authentication.md): service accounts, user logins, impersonation and IAM setup
 - [GitHub Copilot](docs/github-copilot.md): VS Code agent mode, Copilot CLI and the coding agent

@@ -1,6 +1,6 @@
 # Design: Apigee Hybrid Read-Only MCP
 
-**Status:** v0.3, implemented and audited ([security-audit.md](security-audit.md))  
+**Status:** v0.5, implemented and audited ([security-audit.md](security-audit.md)). The normative, implementation-level contract is in [specification.md](specification.md); this doc explains the reasoning.  
 **Scope:** read-only access to the Apigee Hybrid control plane for AI assistants, across many orgs and tiers
 
 ## 1. Problem

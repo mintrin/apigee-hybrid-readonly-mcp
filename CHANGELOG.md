@@ -14,6 +14,7 @@
   - unknown keys in `[lobs.*]`; LOBs carry no credentials
 - The example config now models dedicated per-LOB orgs in preprod and prod (19 orgs).
 - Removal of the deprecated `apigee-hybrid-mcp` command moves to 0.6.0.
+- Added `docs/specification.md`, the canonical build specification, updated for LOBs.
 
 ## 0.4.0: rebranded as Apigee Hybrid Read-Only MCP
 

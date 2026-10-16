@@ -9,6 +9,7 @@ This repo is a **read-only** MCP server for the Apigee Hybrid management API. Th
 - `src/apigee_hybrid_readonly_mcp/auth.py`: token providers (ADC, SA key, gcloud CLI, impersonation)
 - `src/apigee_hybrid_readonly_mcp/redact.py`: secret masking
 - `docs/design.md`: architecture and security model. Update it when behaviour changes.
+- `docs/specification.md`: the canonical spec. Any behavior change updates it in the same commit, including its acceptance criteria.
 
 ## Rules for new or changed tools
 1. Use `@tool` (it sets `readOnlyHint=True` and converts errors). Never call `mcp.tool` directly.
