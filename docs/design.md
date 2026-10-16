@@ -5,7 +5,7 @@
 
 ## 1. Problem
 
-The team runs about two dozen Apigee Hybrid orgs across sandbox, nonprod and prod. Answering routine questions means clicking through the console or hand-writing `curl` calls against `apigee.googleapis.com`, once per org. Typical questions:
+The team runs about two dozen Apigee Hybrid orgs across sandbox, nonprod, preprod and prod. Answering routine questions means clicking through the console or hand-writing `curl` calls against `apigee.googleapis.com`, once per org. Typical questions:
 - "Which revision of `orders` is live in each prod org?"
 - "Is the rollout stuck on some pods?"
 - "Which certs expire this month?"
@@ -49,6 +49,7 @@ flowchart LR
         IAM[IAM / STS<br/>impersonation]
         P1[Sandbox projects]
         P2[Nonprod projects]
+        P4[Preprod projects]
         P3[Prod projects]
     end
 
@@ -62,7 +63,7 @@ flowchart LR
     A -- "token" --> IAM
     C -- "HTTPS GET + Bearer" --> API
     API --> X
-    API --- P1 & P2 & P3
+    API --- P1 & P2 & P4 & P3
     K1 -. "pulls contracts<br/>(not touched by this server)" .-> API
 ```
 
@@ -114,16 +115,19 @@ When one org fails (403, 404, timeout), the error is reported inline for that or
 flowchart TB
     D["[defaults]<br/>api_base, auth"] --> TS["[tiers.sandbox]<br/>impersonate reader@sbx"]
     D --> TN["[tiers.nonprod]<br/>impersonate reader@np"]
+    D --> TPP["[tiers.preprod]<br/>impersonate reader@preprod<br/>allow_kvm_values=false"]
     D --> TP["[tiers.prod]<br/>impersonate reader@prod<br/>allow_kvm_values=false"]
     TS --> O1[acme-sbx-01..04]
     TN --> O2[acme-dev/qa/uat/perf-*]
+    TPP --> O5[acme-preprod-us/eu]
     TP --> O3[acme-prod-*]
     TP --> O4["acme-prod-partner<br/>(override: own SA)"]
 ```
 
 - Inheritable keys flow defaults → tier → org: `api_base`, `auth`, `impersonate_service_account`, `credentials_file`, `gcloud_account`, `allow_kvm_values`.
+- Tiers are reported in the order they are defined in the file, which should be promotion order (sandbox → nonprod → preprod → prod). `find_api_deployments`, `list_configured_orgs` and `--check` all use that order.
 - A tier can list its orgs compactly (`orgs = [...]`), so 24 orgs take about 30 lines. Org tables are only needed for aliases, descriptions or overrides.
-- `APIGEE_TIERS=sandbox,nonprod` limits a server instance to some tiers. The recommended setup is a separate instance for prod.
+- `APIGEE_TIERS=sandbox,nonprod` limits a server instance to some tiers. The recommended setup is a separate instance for the prod-like tiers (`preprod,prod`).
 - Without a config file, env vars give either an allowlist (`APIGEE_ALLOWED_ORGS`) or open mode, where any org name is accepted and IAM alone decides.
 - Validation runs at startup and fails closed: unknown tiers, duplicate or ambiguous aliases, conflicting tier membership, or a bad `auth` value.
 
@@ -145,7 +149,7 @@ flowchart TD
     ADC -. "auto only: google-auth<br/>missing or no ADC" .-> GC
 ```
 
-- One provider is built per distinct `CredSpec` and cached, so three tiers means three providers whatever the org count.
+- One provider is built per distinct `CredSpec` and cached, so four tiers means four providers whatever the org count.
 - google-auth providers refresh using the library's own validity check.
 - gcloud CLI tokens are re-fetched after 45 minutes.
 - The supported identities are listed in [authentication.md](authentication.md).
@@ -189,7 +193,7 @@ Design choices:
 
 ## 8. Testing
 
-`python -m unittest discover -s tests` runs 40 tests. No network or credentials are needed.
+`python -m unittest discover -s tests` runs 41 tests. No network or credentials are needed.
 
 | File | Covers |
 |---|---|

@@ -91,11 +91,12 @@ apigee-hybrid-mcp --check
 Expected output:
 
 ```text
-config: /home/minh/apigee-orgs.toml  default org: acme-sbx-01  tiers: nonprod, prod, sandbox
+config: /home/minh/apigee-orgs.toml  default org: acme-sbx-01  tiers: sandbox, nonprod, preprod, prod
   [nonprod   ] acme-dev-us        gcloud default credentials -> impersonate apigee-mcp-reader@...   OK (HYBRID)
+  [preprod   ] acme-preprod-us    gcloud default credentials -> impersonate apigee-mcp-reader@...   OK (HYBRID)
   [prod      ] acme-prod-us-west  gcloud default credentials -> impersonate apigee-mcp-reader@...   OK (HYBRID)
   ...
-18/18 orgs reachable
+20/20 orgs reachable
 ```
 
 It exits non-zero if any org fails, so you can use it as a CI smoke test.

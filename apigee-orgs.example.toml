@@ -2,9 +2,11 @@
 # Point the server at it with:  APIGEE_CONFIG=/path/to/apigee-orgs.toml
 #
 # Settings inherit:  [defaults]  ->  [tiers.<tier>]  ->  [orgs.<org>]
-# Inheritable keys:  api_base, impersonate_service_account, credentials_file,
+# Inheritable keys:  api_base, auth, impersonate_service_account, credentials_file,
 #                    gcloud_account, allow_kvm_values
-# Run one instance per tier if you want hard separation:  APIGEE_TIERS=prod
+# Tiers are reported in the order they are defined below, so define them in
+# promotion order: sandbox -> nonprod -> preprod -> prod.
+# Run prod-like tiers as a separate instance:  APIGEE_TIERS=preprod,prod
 
 default_org = "acme-sbx-01"   # used when a tool call omits `org`
 redact_secrets = true         # mask consumer keys/secrets, passwords, tokens
@@ -33,6 +35,12 @@ orgs = [
   "acme-perf-us", "acme-perf-eu",
 ]
 
+[tiers.preprod]
+# Staging that mirrors prod: own reader SA, and treated like prod for secrets.
+impersonate_service_account = "apigee-mcp-reader@acme-apigee-preprod.iam.gserviceaccount.com"
+allow_kvm_values = false
+orgs = ["acme-preprod-us", "acme-preprod-eu"]
+
 [tiers.prod]
 impersonate_service_account = "apigee-mcp-reader@acme-apigee-prod.iam.gserviceaccount.com"
 allow_kvm_values = false
@@ -44,6 +52,10 @@ orgs = [
 
 # ---------------------------------------------------------------- per-org overrides
 # Only needed for aliases, descriptions, or a setting that differs from the tier.
+
+[orgs.acme-preprod-us]
+aliases = ["pp-us", "stage-us"]
+description = "Pre-prod / staging for US prod; release candidates soak here"
 
 [orgs.acme-prod-us-west]
 aliases = ["prod-usw", "usw"]

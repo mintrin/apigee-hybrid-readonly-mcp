@@ -108,6 +108,7 @@ class Registry:
         timeout_s: float = 30.0,
         max_parallel: int = 6,
         source: str = "env",
+        tier_order: list[str] | None = None,
     ) -> None:
         self.orgs: dict[str, OrgConfig] = {}
         self._alias: dict[str, str] = {}
@@ -130,6 +131,7 @@ class Registry:
         self.timeout_s = timeout_s
         self.max_parallel = max_parallel
         self.source = source
+        self._tier_order = list(tier_order or [])
         self.default_org = self.resolve(default_org).name if default_org else None
 
     # ---- lookup --------------------------------------------------------
@@ -156,7 +158,14 @@ class Registry:
 
     @property
     def tiers(self) -> list[str]:
-        return sorted({o.tier for o in self.orgs.values()})
+        """Tiers in promotion order: as defined in the config file, then any others alphabetically."""
+        present = {o.tier for o in self.orgs.values()}
+        ordered = [t for t in self._tier_order if t in present]
+        return ordered + sorted(present - set(ordered))
+
+    def tier_rank(self, tier: str) -> int:
+        tiers = self.tiers
+        return tiers.index(tier) if tier in tiers else len(tiers)
 
     def select(self, tier: str | None = None, orgs: list[str] | None = None) -> list[OrgConfig]:
         """Orgs matching a tier and/or an explicit list (names or aliases). Neither = all."""
@@ -198,6 +207,7 @@ class Registry:
                 timeout_s=reg.timeout_s,
                 max_parallel=reg.max_parallel,
                 source=reg.source + f" (tiers: {','.join(enabled)})",
+                tier_order=reg._tier_order,
             )
         return reg
 
@@ -293,4 +303,5 @@ class Registry:
             timeout_s=float(doc.get("timeout_s", 30)),
             max_parallel=int(doc.get("max_parallel", 6)),
             source=source,
+            tier_order=list(tiers),  # TOML table order = promotion order
         )

@@ -41,7 +41,7 @@ Then add `.vscode/mcp.json` to whatever workspace you want it in. This repo incl
 2. Use **Configure Tools** in the chat input to enable the `apigee-hybrid` tools.
 3. Ask, for example: *"Using apigee-hybrid, which revision of `orders` is deployed in each nonprod org?"*
 
-To also reach prod, add a second entry with its own tier filter. Prod then stays a deliberate choice in the tool picker:
+To also reach preprod and prod, add a second entry with its own tier filter. The prod-like tiers then stay a deliberate choice in the tool picker:
 
 ```json
     "apigee-hybrid-prod": {
@@ -49,7 +49,7 @@ To also reach prod, add a second entry with its own tier filter. Prod then stays
       "command": "${userHome}/.venvs/apigee-mcp/bin/apigee-hybrid-mcp",
       "env": {
         "APIGEE_CONFIG": "${userHome}/.config/apigee-mcp/apigee-orgs.toml",
-        "APIGEE_TIERS": "prod"
+        "APIGEE_TIERS": "preprod,prod"
       }
     }
 ```
@@ -86,7 +86,7 @@ code --add-mcp '{"name":"apigee-hybrid","command":"'"$HOME"'/.venvs/apigee-mcp/b
 
 The coding agent runs in an Actions runner and uses MCP tools without asking for approval. So:
 - give it its own GCP identity
-- limit it to non-prod tiers
+- limit it to sandbox and nonprod (no preprod or prod)
 - allowlist the tools it may use
 
 ### a. GCP: workload identity federation (no keys)

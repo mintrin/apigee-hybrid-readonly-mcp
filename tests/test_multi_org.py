@@ -13,7 +13,7 @@ import httpx2 as httpx
 
 from apigee_mcp import server
 from apigee_mcp.client import ApigeeClient
-from apigee_mcp.config import ConfigError, CredSpec, Registry
+from apigee_mcp.config import ConfigError, CredSpec, Registry, UnknownOrg
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -22,6 +22,7 @@ CONFIG = {
     "tiers": {
         "sandbox": {"impersonate_service_account": "reader@sbx.iam.gserviceaccount.com", "orgs": ["sbx-1", "sbx-2"]},
         "nonprod": {"impersonate_service_account": "reader@np.iam.gserviceaccount.com", "orgs": ["dev-us", "qa-us"]},
+        "preprod": {"impersonate_service_account": "reader@pp.iam.gserviceaccount.com", "orgs": ["pp-us"]},
         "prod": {"impersonate_service_account": "reader@prod.iam.gserviceaccount.com", "orgs": ["prod-us", "prod-eu"]},
     },
     "orgs": {
@@ -31,7 +32,7 @@ CONFIG = {
 }
 
 # Which proxy revision is deployed in which org (prod-eu doesn't have it; qa-us is denied)
-DEPLOYED = {"sbx-1": "12", "sbx-2": "12", "dev-us": "11", "prod-us": "9"}
+DEPLOYED = {"sbx-1": "12", "sbx-2": "12", "dev-us": "11", "pp-us": "10", "prod-us": "9"}
 
 
 class TierTokens:
@@ -87,8 +88,10 @@ class MultiOrgTests(unittest.TestCase):
             self.assertEqual(r.method, "GET")
 
     def test_config_inheritance(self):
-        self.assertEqual(len(self.reg.orgs), 6)
-        self.assertEqual(self.reg.tiers, ["nonprod", "prod", "sandbox"])
+        self.assertEqual(len(self.reg.orgs), 7)
+        # promotion order = order of definition in the config, not alphabetical
+        self.assertEqual(self.reg.tiers, ["sandbox", "nonprod", "preprod", "prod"])
+        self.assertEqual(self.reg.resolve("pp-us").cred.impersonate_service_account, "reader@pp.iam.gserviceaccount.com")
         self.assertEqual(self.reg.resolve("usp").name, "prod-us")
         self.assertEqual(self.reg.resolve("prod-us").cred.impersonate_service_account, "reader@prod.iam.gserviceaccount.com")
         self.assertEqual(self.reg.resolve("prod-eu").api_base, "https://eu.apigee.test/v1")
@@ -130,15 +133,29 @@ class MultiOrgTests(unittest.TestCase):
 
     def test_find_api_deployments_shows_drift(self):
         data = json.loads(call("find_api_deployments", {"api": "orders"}))
-        self.assertEqual(data["revisionsByTier"], {"nonprod": ["11"], "prod": ["9"], "sandbox": ["12"]})
+        # revisions reported in promotion order, showing each tier one revision behind the last
+        self.assertEqual(
+            list(data["revisionsByTier"].items()),
+            [("sandbox", ["12"]), ("nonprod", ["11"]), ("preprod", ["10"]), ("prod", ["9"])],
+        )
+        self.assertEqual([r["tier"] for r in data["deployments"]], ["sandbox", "sandbox", "nonprod", "preprod", "prod"])
         self.assertEqual(data["notFound"], ["prod-eu"])
         self.assertIn("qa-us", data["errors"])
-        self.assertEqual(len(data["deployments"]), 4)
+
+    def test_preprod_tier_selection(self):
+        data = json.loads(call("find_api_deployments", {"api": "orders", "tier": "preprod"}))
+        self.assertEqual(data["revisionsByTier"], {"preprod": ["10"]})
+        listing = json.loads(call("list_configured_orgs"))
+        self.assertEqual(listing["tiers"], ["sandbox", "nonprod", "preprod", "prod"])
+        self.assertEqual([o["tier"] for o in listing["orgs"]][:5], ["sandbox", "sandbox", "nonprod", "nonprod", "preprod"])
 
     def test_example_config_file_loads(self):
         with mock.patch.dict(os.environ, {"APIGEE_CONFIG": str(ROOT / "apigee-orgs.example.toml")}, clear=False):
             reg = Registry.load()
-        self.assertEqual(len(reg.orgs), 18)
+        self.assertEqual(len(reg.orgs), 20)
+        self.assertEqual(reg.tiers, ["sandbox", "nonprod", "preprod", "prod"])
+        self.assertEqual(reg.resolve("stage-us").name, "acme-preprod-us")
+        self.assertFalse(reg.resolve("acme-preprod-eu").allow_kvm_values)
         self.assertEqual(reg.resolve("partner").cred.impersonate_service_account,
                          "apigee-mcp-reader@acme-partner-prod.iam.gserviceaccount.com")
         self.assertTrue(reg.resolve("acme-sbx-02").allow_kvm_values)
@@ -147,9 +164,20 @@ class MultiOrgTests(unittest.TestCase):
         env = {"APIGEE_CONFIG": str(ROOT / "apigee-orgs.example.toml"), "APIGEE_TIERS": "sandbox,nonprod"}
         with mock.patch.dict(os.environ, env, clear=False):
             reg = Registry.load()
-        self.assertEqual(reg.tiers, ["nonprod", "sandbox"])
-        with self.assertRaises(Exception):
-            reg.resolve("acme-prod-us-west")
+        self.assertEqual(reg.tiers, ["sandbox", "nonprod"])
+        for hidden in ("acme-prod-us-west", "acme-preprod-us", "stage-us"):
+            with self.assertRaises(UnknownOrg):
+                reg.resolve(hidden)
+
+        env["APIGEE_TIERS"] = "preprod,prod"
+        with mock.patch.dict(os.environ, env, clear=False):
+            reg = Registry.load()
+        self.assertEqual(reg.tiers, ["preprod", "prod"])
+        self.assertEqual(len(reg.orgs), 8)
+        self.assertEqual(reg.default_org, None)  # default (sandbox) org is outside this instance
+        self.assertEqual(reg.resolve("stage-us").name, "acme-preprod-us")
+        with self.assertRaises(UnknownOrg):
+            reg.resolve("acme-sbx-01")
 
     def test_config_errors(self):
         with self.assertRaises(ConfigError):

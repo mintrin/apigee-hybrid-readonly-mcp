@@ -458,7 +458,7 @@ async def list_configured_orgs(tier: str | None = None) -> str:
                     "description": o.description,
                     "credential": o.cred.describe(),
                 }
-                for o in sorted(orgs, key=lambda o: (o.tier, o.name))
+                for o in sorted(orgs, key=lambda o: (reg.tier_rank(o.tier), o.name))
             ],
         }
     )
@@ -496,9 +496,9 @@ async def find_api_deployments(
 ) -> str:
     """Where is a proxy (or shared flow) deployed across orgs, and at which revision?
 
-    Returns one row per org/environment plus a per-tier summary of revisions, which makes
-    promotion drift (sandbox -> nonprod -> prod) easy to spot. Orgs where the proxy does not
-    exist are listed under notFound.
+    Returns one row per org/environment plus a per-tier summary of revisions in promotion
+    order (e.g. sandbox -> nonprod -> preprod -> prod), which makes promotion drift easy
+    to spot. Orgs where the proxy does not exist are listed under notFound.
     """
     c = client()
     kind = "sharedflows" if sharedflow else "apis"
@@ -533,12 +533,13 @@ async def find_api_deployments(
                 }
             )
             by_tier.setdefault(tiers[org_name], set()).add(rev)
-    rows.sort(key=lambda r: (r["tier"], r["org"], r["environment"] or ""))
+    rank = c.registry.tier_rank
+    rows.sort(key=lambda r: (rank(r["tier"]), r["org"], r["environment"] or ""))
     return to_text(
         {
             "api": api,
             "kind": kind,
-            "revisionsByTier": {t: sorted(v, key=lambda x: int(x) if x.isdigit() else 0) for t, v in sorted(by_tier.items())},
+            "revisionsByTier": {t: sorted(v, key=lambda x: int(x) if x.isdigit() else 0) for t, v in sorted(by_tier.items(), key=lambda kv: rank(kv[0]))},
             "deployments": rows,
             "notFound": sorted(not_found),
             "errors": errors,
@@ -591,7 +592,7 @@ def main() -> None:
 
             results = await c.for_each_org(list(reg.orgs.values()), probe)
             failed = 0
-            for o in sorted(reg.orgs.values(), key=lambda o: (o.tier, o.name)):
+            for o in sorted(reg.orgs.values(), key=lambda o: (reg.tier_rank(o.tier), o.name)):
                 r = results[o.name]
                 ok = not (isinstance(r, dict) and "error" in r)
                 failed += not ok

@@ -6,10 +6,10 @@ A **read-only** MCP server for the Apigee Hybrid control plane. It lets Claude, 
 flowchart LR
     C[Claude / Copilot] -- MCP --> S[apigee-hybrid-mcp]
     S -- "GET only<br/>per-tier identity" --> A[(apigee.googleapis.com)]
-    A --- O1[sandbox orgs] & O2[nonprod orgs] & O3[prod orgs]
+    A --- O1[sandbox orgs] & O2[nonprod orgs] & O4[preprod orgs] & O3[prod orgs]
 ```
 
-- **Multi-org:** a TOML registry groups orgs into tiers (sandbox / nonprod / prod), gives them aliases, and assigns a credential per tier. Cross-org tools answer questions like "where is `orders` deployed, at which revision, in every prod org?"
+- **Multi-org:** a TOML registry groups orgs into tiers (sandbox / nonprod / preprod / prod), gives them aliases, and assigns a credential per tier. Cross-org tools answer questions like "where is `orders` deployed, at which revision, in every prod org?"
 - **Read-only in depth:** reader IAM roles, a GET-only client, strict path validation, an org allowlist, secret redaction, and `readOnlyHint` on every tool.
 - **Any Google identity:** your `gcloud auth login`, ADC, SA key files, workload identity, and per-tier service-account impersonation.
 
@@ -45,11 +45,11 @@ APIGEE_AUTH=gcloud APIGEE_ORG=my-org apigee-hybrid-mcp --check
 | VS Code Copilot (agent mode) | [`.vscode/mcp.json`](.vscode/mcp.json): see [docs/github-copilot.md](docs/github-copilot.md) |
 | Copilot CLI / coding agent | [docs/github-copilot.md](docs/github-copilot.md) |
 
-Run prod as a separate server entry with `APIGEE_TIERS=prod`. Reaching prod is then a deliberate choice in the client.
+Run the prod-like tiers as a separate server entry with `APIGEE_TIERS=preprod,prod`. Reaching them is then a deliberate choice in the client.
 
 ## Configuration
 
-See [`apigee-orgs.example.toml`](apigee-orgs.example.toml): 18 orgs in 3 tiers, each tier impersonating its own reader SA. Settings inherit defaults → tier → org.
+See [`apigee-orgs.example.toml`](apigee-orgs.example.toml): 20 orgs in 4 tiers (sandbox, nonprod, preprod, prod), each tier impersonating its own reader SA. Settings inherit defaults → tier → org. Define tiers in promotion order; cross-org results are reported in that order.
 
 | Env var | Purpose |
 |---|---|
@@ -94,7 +94,7 @@ Example questions:
 ## Development
 
 ```bash
-python -m unittest discover -s tests -v    # 40 tests, no network or credentials
+python -m unittest discover -s tests -v    # 41 tests, no network or credentials
 ```
 
 Contribution rules for tools, which Copilot also reads, are in [.github/copilot-instructions.md](.github/copilot-instructions.md).
