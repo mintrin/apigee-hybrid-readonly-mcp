@@ -165,10 +165,13 @@ class MultiOrgTests(unittest.TestCase):
     def test_example_config_file_loads(self):
         with mock.patch.dict(os.environ, {"APIGEE_CONFIG": str(ROOT / "apigee-orgs.example.toml")}, clear=False):
             reg = Registry.load()
-        self.assertEqual(len(reg.orgs), 20)
+        self.assertEqual(len(reg.orgs), 19)
         self.assertEqual(reg.tiers, ["sandbox", "nonprod", "preprod", "prod"])
-        self.assertEqual(reg.resolve("stage-us").name, "acme-preprod-us")
-        self.assertFalse(reg.resolve("acme-preprod-eu").allow_kvm_values)
+        self.assertEqual(reg.lobs, ["payments", "retail", "lending"])
+        self.assertEqual(reg.resolve("payments@preprod").name, "acme-pay-pp")
+        self.assertEqual(reg.resolve("pay").name, "acme-pay-prod")
+        self.assertFalse(reg.resolve("acme-lend-pp").allow_kvm_values)
+        self.assertIsNone(reg.resolve("partner").lob)
         self.assertEqual(reg.resolve("partner").cred.impersonate_service_account,
                          "apigee-mcp-reader@acme-partner-prod.iam.gserviceaccount.com")
         self.assertTrue(reg.resolve("acme-sbx-02").allow_kvm_values)
@@ -178,7 +181,8 @@ class MultiOrgTests(unittest.TestCase):
         with mock.patch.dict(os.environ, env, clear=False):
             reg = Registry.load()
         self.assertEqual(reg.tiers, ["sandbox", "nonprod"])
-        for hidden in ("acme-prod-us-west", "acme-preprod-us", "stage-us"):
+        self.assertEqual(reg.lobs, [])  # the LOB orgs all live in preprod/prod
+        for hidden in ("acme-pay-prod", "acme-retail-pp", "pay", "payments@prod"):
             with self.assertRaises(UnknownOrg):
                 reg.resolve(hidden)
 
@@ -186,9 +190,10 @@ class MultiOrgTests(unittest.TestCase):
         with mock.patch.dict(os.environ, env, clear=False):
             reg = Registry.load()
         self.assertEqual(reg.tiers, ["preprod", "prod"])
-        self.assertEqual(len(reg.orgs), 8)
+        self.assertEqual(len(reg.orgs), 7)
         self.assertEqual(reg.default_org, None)  # default (sandbox) org is outside this instance
-        self.assertEqual(reg.resolve("stage-us").name, "acme-preprod-us")
+        self.assertEqual(reg.resolve("retail@preprod").name, "acme-retail-pp")
+        self.assertEqual(reg.lobs, ["payments", "retail", "lending"])  # LOB order survives the tier filter
         with self.assertRaises(UnknownOrg):
             reg.resolve("acme-sbx-01")
 

@@ -39,31 +39,40 @@ orgs = [
 # Staging that mirrors prod: own reader SA, and treated like prod for secrets.
 impersonate_service_account = "apigee-mcp-reader@acme-apigee-preprod.iam.gserviceaccount.com"
 allow_kvm_values = false
-orgs = ["acme-preprod-us", "acme-preprod-eu"]
+orgs = ["acme-pay-pp", "acme-retail-pp", "acme-lend-pp"]
 
 [tiers.prod]
 impersonate_service_account = "apigee-mcp-reader@acme-apigee-prod.iam.gserviceaccount.com"
 allow_kvm_values = false
-orgs = [
-  "acme-prod-us-west", "acme-prod-us-east",
-  "acme-prod-eu-west", "acme-prod-eu-central",
-  "acme-prod-apac", "acme-prod-partner",
-]
+orgs = ["acme-pay-prod", "acme-retail-prod", "acme-lend-prod", "acme-prod-partner"]
+
+# ---------------------------------------------------------------- lines of business
+# Optional second dimension. Each org belongs to at most one LOB, and each LOB has at
+# most one org per tier, so "payments@prod" names exactly one org in any `org` argument.
+# Tools filter by `lob` (and `tier`); find_api_deployments reports revisions per LOB.
+# LOBs only group orgs: credentials still come from the tier (or an org override).
+
+[lobs.payments]
+description = "Card and payment APIs"
+orgs = ["acme-pay-pp", "acme-pay-prod"]
+
+[lobs.retail]
+description = "Retail banking APIs"
+orgs = ["acme-retail-pp", "acme-retail-prod"]
+
+[lobs.lending]
+description = "Loan origination and servicing APIs"
+orgs = ["acme-lend-pp", "acme-lend-prod"]
 
 # ---------------------------------------------------------------- per-org overrides
 # Only needed for aliases, descriptions, or a setting that differs from the tier.
 
-[orgs.acme-preprod-us]
-aliases = ["pp-us", "stage-us"]
-description = "Pre-prod / staging for US prod; release candidates soak here"
+[orgs.acme-pay-prod]
+aliases = ["pay"]
+description = "Payments production; PCI scope"
 
-[orgs.acme-prod-us-west]
-aliases = ["prod-usw", "usw"]
-description = "Primary US prod; hybrid clusters in us-west1"
-
-[orgs.acme-prod-eu-west]
-aliases = ["prod-euw"]
-description = "EU prod; data-residency control plane"
+[orgs.acme-retail-prod]
+description = "Retail production; EU data-residency control plane"
 # api_base = "https://<control-plane-location>-apigee.googleapis.com/v1"
 
 [orgs.acme-prod-partner]

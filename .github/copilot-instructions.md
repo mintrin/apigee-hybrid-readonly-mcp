@@ -15,7 +15,7 @@ This repo is a **read-only** MCP server for the Apigee Hybrid management API. Th
 2. Call `client().get(...)` only. Do not add HTTP methods. `read_post` is limited to the `_READ_ONLY_POST_VERBS` allowlist, so don't extend that list without a design-doc change and review.
 3. Pass every caller-supplied path piece through `seg(value, "what")`. Resolve orgs with `_o(org)` or `client().org(...)`.
 4. Accept `org: str | None = None` and let the registry resolve names and aliases.
-5. For cross-org tools, use `client().registry.select(tier=..., orgs=...)` with `client().for_each_org(...)`, so per-org failures stay inline.
+5. For cross-org tools, use `client().registry.select(tier=..., orgs=..., lob=...)` with `client().for_each_org(...)`, so per-org failures stay inline. Accept both `tier` and `lob` filters, and sort output by `tier_rank` / `lob_rank`.
 6. Return `to_text(...)`, which handles truncation. Redaction happens in the client.
 7. Never add Google API system parameters (`alt`, `callback`, `fields`, `format`, `$...`, `key`, `*_token`, `quotaUser`) to `_ALLOWED_PARAMS`. They can change the response format and slip past redaction. Never relax the non-JSON fail-closed rule or the debug-session data block.
 8. Add tests in `tests/` against `httpx2.MockTransport`. The `tearDown` in `test_server.py` asserts that no non-GET request was sent, so keep that pattern.

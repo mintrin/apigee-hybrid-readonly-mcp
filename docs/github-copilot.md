@@ -126,7 +126,7 @@ Copy [`examples/copilot-setup-steps.yml`](../examples/copilot-setup-steps.yml) i
 Create these variables in that repo's `copilot` environment (Settings → Environments → copilot):
 - `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_SERVICE_ACCOUNT`
 - `APIGEE_ORGS_TOML`, holding the TOML text for the non-prod orgs
-- `APIGEE_MCP_SOURCE`, the pip source for this server, for example `git+https://github.com/<owner>/apigee-hybrid-readonly-mcp@v0.4.0`
+- `APIGEE_MCP_SOURCE`, the pip source for this server, for example `git+https://github.com/<owner>/apigee-hybrid-readonly-mcp@v0.5.0`
 
 All four are variables, not secrets.
 

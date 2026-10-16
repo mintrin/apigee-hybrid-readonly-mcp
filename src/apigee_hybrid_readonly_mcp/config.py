@@ -12,6 +12,12 @@ Settings inherit defaults -> tier -> org, so most orgs only need a tier.
 APIGEE_TIERS=sandbox,nonprod limits one server instance to some tiers
 (e.g. run a separate instance for prod).
 
+A second, optional dimension -- line of business (LOB) -- cuts across tiers:
+each org may belong to one LOB, declared in [lobs.<name>] (orgs = [...]) or
+with `lob = "<name>"` on the org. At most one org per (LOB, tier) pair, so
+"payments@prod" names exactly one org anywhere an org is accepted. LOBs are a
+grouping only: credentials still come from defaults -> tier -> org.
+
 Validation is strict and fails closed: unknown keys, wrong types, non-HTTPS
 API bases and malformed names are all startup errors. In particular a typo in
 a credential key must never silently fall back to a broader identity.
@@ -37,10 +43,11 @@ _SA_EMAIL = re.compile(r"^[A-Za-z0-9._\-]+@[A-Za-z0-9._\-]+$")
 _LOOPBACK = {"localhost", "127.0.0.1", "::1"}
 
 _INHERITED = ("api_base", "auth", "impersonate_service_account", "credentials_file", "gcloud_account", "allow_kvm_values")
-_TOP_KEYS = {"default_org", "defaults", "tiers", "orgs", "redact_secrets", "timeout_s", "max_parallel"}
+_TOP_KEYS = {"default_org", "defaults", "tiers", "lobs", "orgs", "redact_secrets", "timeout_s", "max_parallel"}
 _DEFAULT_KEYS = set(_INHERITED)
 _TIER_KEYS = set(_INHERITED) | {"orgs", "description"}
-_ORG_KEYS = set(_INHERITED) | {"tier", "aliases", "description"}
+_ORG_KEYS = set(_INHERITED) | {"tier", "lob", "aliases", "description"}
+_LOB_KEYS = {"orgs", "description"}
 
 
 class ConfigError(ValueError):
@@ -176,6 +183,7 @@ class CredSpec:
 class OrgConfig:
     name: str
     tier: str = "default"
+    lob: str | None = None
     aliases: tuple[str, ...] = ()
     description: str = ""
     api_base: str = DEFAULT_BASE_URL
@@ -214,15 +222,27 @@ class Registry:
         max_parallel: int = 6,
         source: str = "env",
         tier_order: list[str] | None = None,
+        lob_order: list[str] | None = None,
+        lob_descriptions: dict[str, str] | None = None,
     ) -> None:
         self.orgs: dict[str, OrgConfig] = {}
         self._alias: dict[str, str] = {}
+        self._cell: dict[tuple[str, str], str] = {}  # (lob, tier) -> org name
         for o in orgs:
             _check_name(o.name, "org name")
             _check_name(o.tier, f"tier for {o.name}")
             if o.name in self.orgs:
                 raise ConfigError(f"Org {o.name!r} is defined twice")
             self.orgs[o.name] = o
+            if o.lob is not None:
+                _check_name(o.lob, f"lob for {o.name}")
+                other = self._cell.get((o.lob, o.tier))
+                if other:
+                    raise ConfigError(
+                        f"LOB {o.lob!r} has two orgs in tier {o.tier!r} ({other}, {o.name}); "
+                        "at most one org per (lob, tier)"
+                    )
+                self._cell[(o.lob, o.tier)] = o.name
         for o in orgs:
             for a in o.aliases:
                 _check_name(a, f"alias of {o.name}")
@@ -238,6 +258,8 @@ class Registry:
         self.max_parallel = _number(max_parallel, "max_parallel", "config", 1, 32, int)
         self.source = source
         self._tier_order = list(tier_order or [])
+        self._lob_order = list(lob_order or [])
+        self.lob_descriptions = dict(lob_descriptions or {})
         if default_org:
             try:
                 self.default_org: str | None = self.resolve(default_org).name
@@ -259,6 +281,15 @@ class Registry:
             return self.orgs[name]
         if name in self._alias:
             return self.orgs[self._alias[name]]
+        if "@" in name:  # "<lob>@<tier>": the one org of that line of business in that tier
+            lob, _, tier = name.partition("@")
+            hit = self._cell.get((lob, tier))
+            if hit:
+                return self.orgs[hit]
+            if lob not in self.lobs:
+                raise UnknownOrg(f"Unknown lob {lob[:40]!r} in {name[:80]!r}. LOBs: {', '.join(self.lobs) or '(none)'}")
+            have = [t for t in self.tiers if (lob, t) in self._cell]
+            raise UnknownOrg(f"LOB {lob!r} has no org in tier {tier[:40]!r}. It has: {', '.join(have) or '(none)'}")
         if self.open_mode and _NAME.fullmatch(name):
             return OrgConfig(
                 name=name,
@@ -280,8 +311,26 @@ class Registry:
         tiers = self.tiers
         return tiers.index(tier) if tier in tiers else len(tiers)
 
-    def select(self, tier: str | None = None, orgs: list[str] | None = None) -> list[OrgConfig]:
-        """Orgs matching a tier and/or an explicit list (names or aliases). Neither = all.
+    @property
+    def lobs(self) -> list[str]:
+        """Lines of business: in [lobs] table order, then any others alphabetically."""
+        present = {o.lob for o in self.orgs.values() if o.lob}
+        ordered = [b for b in self._lob_order if b in present]
+        return ordered + sorted(present - set(ordered))
+
+    def lob_rank(self, lob: str | None) -> int:
+        lobs = self.lobs
+        return lobs.index(lob) if lob in lobs else len(lobs)
+
+    def grid(self) -> dict[str, dict[str, str]]:
+        """{lob: {tier: org}} in LOB order, tiers in promotion order."""
+        return {b: {t: self._cell[(b, t)] for t in self.tiers if (b, t) in self._cell} for b in self.lobs}
+
+    def select(
+        self, tier: str | None = None, orgs: list[str] | None = None, lob: str | None = None
+    ) -> list[OrgConfig]:
+        """Orgs matching a tier, a line of business and/or an explicit list (names, aliases
+        or lob@tier). Filters combine (AND). None of them = all configured orgs.
 
         An explicit list is de-duplicated and capped (MAX_FANOUT) before anything is resolved,
         so a caller can't turn one tool call into thousands of requests (open mode)."""
@@ -296,6 +345,10 @@ class Registry:
             if tier not in self.tiers:
                 raise UnknownOrg(f"Unknown tier {tier[:40]!r}. Tiers: {', '.join(self.tiers) or '(none)'}")
             picked = [o for o in picked if o.tier == tier]
+        if lob:
+            if lob not in self.lobs:
+                raise UnknownOrg(f"Unknown lob {lob[:40]!r}. LOBs: {', '.join(self.lobs) or '(none)'}")
+            picked = [o for o in picked if o.lob == lob]
         if not picked:
             raise UnknownOrg("No orgs matched (in open mode, pass orgs explicitly).")
         seen: dict[str, OrgConfig] = {}
@@ -331,6 +384,8 @@ class Registry:
             max_parallel=reg.max_parallel,
             source=reg.source + f" (tiers: {','.join(enabled)})",
             tier_order=reg._tier_order,
+            lob_order=reg._lob_order,
+            lob_descriptions=reg.lob_descriptions,
         )
 
     @classmethod
@@ -394,6 +449,12 @@ class Registry:
             _check_name(tier_name, "tier name")
             tiers[tier_name] = _table(t, f"[tiers.{tier_name}]", _TIER_KEYS)
 
+        lobs_raw = _table(doc.get("lobs"), "[lobs]", set(doc.get("lobs") or {}))
+        lobs: dict[str, dict[str, Any]] = {}
+        for lob_name, t in lobs_raw.items():
+            _check_name(lob_name, "lob name")
+            lobs[lob_name] = _table(t, f"[lobs.{lob_name}]", _LOB_KEYS)
+
         org_tables: dict[str, dict[str, Any]] = {}
         for org_name, t in orgs_raw.items():
             _check_name(org_name, "org name")
@@ -408,6 +469,17 @@ class Registry:
                     raise ConfigError(f"Org {org_name!r} is listed under tier {tier_name!r} but says tier={existing['tier']!r}")
                 existing["tier"] = tier_name
 
+        # LOBs list their orgs the same way: [lobs.payments] orgs = ["pay-pp", "pay-prod"]
+        for lob_name, t in lobs.items():
+            for org_name in _str_list(t.get("orgs"), "orgs", f"[lobs.{lob_name}]"):
+                _check_name(org_name, f"org name in [lobs.{lob_name}]")
+                if org_name not in org_tables:
+                    raise ConfigError(f"[lobs.{lob_name}] lists {org_name!r}, which no tier or [orgs] table defines")
+                existing = org_tables[org_name]
+                if existing.get("lob", lob_name) != lob_name:
+                    raise ConfigError(f"Org {org_name!r} is listed under lob {lob_name!r} but says lob={existing['lob']!r}")
+                existing["lob"] = lob_name
+
         default_api_base = _check_api_base(defaults.get("api_base", DEFAULT_BASE_URL), "[defaults]")
         orgs: list[OrgConfig] = []
         for name, t in org_tables.items():
@@ -417,6 +489,9 @@ class Registry:
                 raise ConfigError(f"{where}: tier must be a string")
             if tier != "default" and tier not in tiers:
                 raise ConfigError(f"Org {name!r} uses undefined tier {tier!r}")
+            lob = _opt_str(t.get("lob"), "lob", where)
+            if lob is not None and lob not in lobs:
+                raise ConfigError(f"Org {name!r} uses undefined lob {lob!r} (add a [lobs.{lob}] table)")
             merged: dict[str, Any] = {k: v for k, v in defaults.items() if k in _INHERITED}
             merged.update({k: v for k, v in tiers.get(tier, {}).items() if k in _INHERITED})
             merged.update({k: v for k, v in t.items() if k in _INHERITED})
@@ -424,6 +499,7 @@ class Registry:
                 OrgConfig(
                     name=name,
                     tier=tier,
+                    lob=lob,
                     aliases=tuple(_str_list(t.get("aliases"), "aliases", where)),
                     description=_opt_str(t.get("description"), "description", where) or "",
                     api_base=_check_api_base(merged.get("api_base", default_api_base), where),
@@ -443,4 +519,6 @@ class Registry:
             max_parallel=_number(doc.get("max_parallel", 6), "max_parallel", "config", 1, 32, int),
             source=source,
             tier_order=list(tiers),  # TOML table order = promotion order
+            lob_order=list(lobs),
+            lob_descriptions={b: _opt_str(t.get("description"), "description", f"[lobs.{b}]") or "" for b, t in lobs.items()},
         )

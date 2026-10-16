@@ -8,7 +8,7 @@
 #   vars.GCP_WORKLOAD_IDENTITY_PROVIDER  projects/<num>/locations/global/workloadIdentityPools/github/providers/github
 #   vars.GCP_SERVICE_ACCOUNT             apigee-mcp-copilot@<project>.iam.gserviceaccount.com
 #   vars.APIGEE_ORGS_TOML                TOML for the NON-PROD orgs only (see apigee-orgs.example.toml)
-#   vars.APIGEE_MCP_SOURCE               pip spec, e.g. git+https://github.com/<owner>/apigee-hybrid-readonly-mcp@v0.4.0
+#   vars.APIGEE_MCP_SOURCE               pip spec, e.g. git+https://github.com/<owner>/apigee-hybrid-readonly-mcp@v0.5.0
 #
 # And the MCP configuration in Settings > Copilot > MCP servers (docs/github-copilot.md).
 

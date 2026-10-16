@@ -11,7 +11,7 @@ flowchart LR
     A --- O1[sandbox orgs] & O2[nonprod orgs] & O4[preprod orgs] & O3[prod orgs]
 ```
 
-- **Multi-org:** a TOML registry groups orgs into tiers (sandbox / nonprod / preprod / prod), gives them aliases, and assigns a credential per tier. Cross-org tools answer questions like "where is `orders` deployed, at which revision, in every prod org?"
+- **Multi-org:** a TOML registry groups orgs into tiers (sandbox / nonprod / preprod / prod) and, optionally, lines of business (payments, retail, ...). It gives them aliases and assigns a credential per tier. `payments@prod` names the one payments org in prod. Cross-org tools answer questions like "where is `orders` deployed, at which revision, in every prod org?"
 - **Read-only in depth:** reader IAM roles, a GET-only client, strict path validation, an org allowlist, secret redaction, and `readOnlyHint` on every tool.
 - **Any Google identity:** your `gcloud auth login`, ADC, SA key files, workload identity, and per-tier service-account impersonation.
 
@@ -51,7 +51,22 @@ Run the prod-like tiers as a separate server entry with `APIGEE_TIERS=preprod,pr
 
 ## Configuration
 
-See [`apigee-orgs.example.toml`](apigee-orgs.example.toml): 20 orgs in 4 tiers (sandbox, nonprod, preprod, prod), each tier impersonating its own reader SA. Settings inherit defaults → tier → org. Define tiers in promotion order; cross-org results are reported in that order.
+See [`apigee-orgs.example.toml`](apigee-orgs.example.toml): 19 orgs in 4 tiers (sandbox, nonprod, preprod, prod), each tier impersonating its own reader SA. Preprod and prod each have one dedicated org per line of business (payments, retail, lending). Settings inherit defaults → tier → org. Define tiers and LOBs in the order you want them reported; tiers in promotion order.
+
+### Lines of business
+
+A line of business (LOB) is an optional second dimension across tiers:
+
+```toml
+[lobs.payments]
+description = "Card and payment APIs"
+orgs = ["acme-pay-pp", "acme-pay-prod"]   # or set lob = "payments" on each org
+```
+
+- Each org belongs to at most one LOB. Each LOB has at most one org per tier, and a duplicate is a config error.
+- `org="payments@prod"` works anywhere an org is accepted, including `apigee_get` paths.
+- `list_configured_orgs`, `across_orgs` and `find_api_deployments` take `lob=`, which combines with `tier=`. `find_api_deployments` also reports `revisionsByLob`, so preprod-to-prod drift per LOB shows in one call.
+- LOBs group orgs only: credentials still come from the tier, or an org override.
 
 | Env var | Purpose |
 |---|---|
@@ -91,7 +106,7 @@ Credentials are covered in full in [docs/authentication.md](docs/authentication.
 
 | Area | Tools |
 |---|---|
-| Multi-org | `list_configured_orgs`, `across_orgs`, `find_api_deployments` |
+| Multi-org | `list_configured_orgs`, `across_orgs`, `find_api_deployments` (filter by `tier` and/or `lob`) |
 | Org | `list_organizations`, `get_organization`, `get_project_mapping`, `get_sync_authorization`, `list_operations` |
 | Environments | `list_environments`, `get_environment`, `get_deployed_config`, `list_envgroups`, `get_envgroup` |
 | Proxies / shared flows | `list_api_proxies`, `get_api_proxy`, `get_api_proxy_revision`, `list_sharedflows`, `get_sharedflow` |
@@ -104,9 +119,10 @@ Credentials are covered in full in [docs/authentication.md](docs/authentication.
 
 Example questions:
 - "Which revision of `orders` is deployed in each org, and where do tiers drift?"
-- "In prod-usw, is revision 9 of `orders` fully rolled out on every pod?"
+- "Is payments preprod ahead of payments prod for `checkout`?" (`find_api_deployments(api="checkout", lob="payments")`)
+- "In payments@prod, is revision 12 of `checkout` fully rolled out on every pod?"
 - "List the target servers in every nonprod org."
-- "Which certs in acme-prod-eu-west's prod environment expire within 60 days?"
+- "Which certs in retail@prod's prod environment expire within 60 days?"
 
 ## Docs
 

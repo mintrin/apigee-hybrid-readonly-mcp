@@ -29,11 +29,12 @@ INSTRUCTIONS = """\
 Apigee Hybrid Read-Only MCP: read-only access to the Apigee Hybrid management plane (apigee.googleapis.com).
 Nothing here can create, change, deploy or delete anything.
 
-Multiple orgs: call list_configured_orgs first to see org names, aliases and tiers
-(e.g. sandbox / nonprod / prod). Every tool's `org` accepts a name or alias; omit it
-to use the default org. For questions spanning orgs, use find_api_deployments
-(where is proxy X deployed, at which revision, across a tier) or across_orgs
-(the same GET against every org in a tier).
+Multiple orgs: call list_configured_orgs first to see org names, aliases, tiers
+(e.g. sandbox / nonprod / preprod / prod) and lines of business (LOBs, e.g. payments).
+Every tool's `org` accepts a name, an alias, or "<lob>@<tier>" (e.g. "payments@prod");
+omit it to use the default org. For questions spanning orgs, use find_api_deployments
+(where is proxy X deployed, at which revision, across a tier and/or LOB) or across_orgs
+(the same GET against every org in a tier and/or LOB).
 
 Typical starting points: list_environments -> list_deployments -> get_deployment_status
 for "what is running where"; get_organization / get_sync_authorization for hybrid
@@ -515,26 +516,30 @@ async def list_debug_sessions(env: str, api: str, revision: str, org: str | None
 
 
 @tool
-async def list_configured_orgs(tier: str | None = None) -> str:
-    """Orgs this server can query: name, tier (e.g. sandbox/nonprod/prod), aliases, description,
-    and which credential each uses. Call this first when the user refers to an org by nickname or tier."""
+async def list_configured_orgs(tier: str | None = None, lob: str | None = None) -> str:
+    """Orgs this server can query: name, tier (e.g. sandbox/nonprod/preprod/prod), line of
+    business (lob), aliases, description, and which credential each uses, plus a lob x tier grid.
+    Call this first when the user refers to an org by nickname, tier or line of business."""
     reg = client().registry
-    orgs = reg.select(tier=tier) if (tier or reg.orgs) else []
+    orgs = reg.select(tier=tier, lob=lob) if (tier or lob or reg.orgs) else []
     return to_text(
         {
             "source": reg.source,
             "defaultOrg": reg.default_org,
             "openMode": reg.open_mode,
             "tiers": reg.tiers,
+            "lobs": [{"name": b, "description": reg.lob_descriptions.get(b, "")} for b in reg.lobs],
+            "grid": reg.grid(),
             "orgs": [
                 {
                     "name": o.name,
                     "tier": o.tier,
+                    "lob": o.lob,
                     "aliases": list(o.aliases),
                     "description": o.description,
                     "credential": o.cred.describe(),
                 }
-                for o in sorted(orgs, key=lambda o: (reg.tier_rank(o.tier), o.name))
+                for o in sorted(orgs, key=lambda o: (reg.tier_rank(o.tier), reg.lob_rank(o.lob), o.name))
             ],
         }
     )
@@ -546,21 +551,23 @@ async def across_orgs(
     tier: str | None = None,
     orgs: list[str] | None = None,
     params: dict[str, str] | None = None,
+    lob: str | None = None,
 ) -> str:
     """Run the same read against many orgs at once and return {org: result}.
 
     `resource` is a path relative to the org, e.g. "environments", "envgroups",
     "apis", "sharedflows", "environments/prod/targetservers", "deployments".
-    Pick orgs by `tier` (e.g. "prod"), by an explicit list of names/aliases, or both.
+    Pick orgs by `tier` (e.g. "prod"), `lob` (line of business, e.g. "payments"), an explicit
+    list of names/aliases/"lob@tier", or any combination (filters combine).
     Per-org failures (404, permission denied) are reported inline and do not stop the others.
     """
     c = client()
     rel = resource.strip().strip("/")
     if not rel or rel.startswith("organizations/") or rel == "organizations":
         raise ToolError("`resource` is a path relative to the org, e.g. 'environments' (not organizations/...).")
-    selected = c.registry.select(tier=tier, orgs=orgs)
+    selected = c.registry.select(tier=tier, orgs=orgs, lob=lob)
     results = await c.for_each_org(selected, lambda o: c.get(f"organizations/{o.name}/{rel}", params))
-    return to_text({"resource": rel, "tier": tier, "orgCount": len(selected), "results": results})
+    return to_text({"resource": rel, "tier": tier, "lob": lob, "orgCount": len(selected), "results": results})
 
 
 @tool
@@ -569,18 +576,23 @@ async def find_api_deployments(
     tier: str | None = None,
     orgs: list[str] | None = None,
     sharedflow: bool = False,
+    lob: str | None = None,
 ) -> str:
     """Where is a proxy (or shared flow) deployed across orgs, and at which revision?
 
     Returns one row per org/environment plus a per-tier summary of revisions in promotion
     order (e.g. sandbox -> nonprod -> preprod -> prod), which makes promotion drift easy
-    to spot. Orgs where the proxy does not exist are listed under notFound.
+    to spot. With lines of business configured, revisionsByLob gives the same per LOB
+    (e.g. payments: preprod 10, prod 9). Filter with `tier`, `lob` and/or `orgs`.
+    Orgs where the proxy does not exist are listed under notFound.
     """
     c = client()
     kind = "sharedflows" if sharedflow else "apis"
     name = seg(api, "api")
-    selected = c.registry.select(tier=tier, orgs=orgs)
+    selected = c.registry.select(tier=tier, orgs=orgs, lob=lob)
     tiers = {o.name: o.tier for o in selected}
+    lobs = {o.name: o.lob for o in selected}
+    by_lob: dict[str, dict[str, set[str]]] = {}
     raw = await c.for_each_org(selected, lambda o: c.get(f"organizations/{o.name}/{kind}/{name}/deployments"))
 
     rows: list[dict[str, Any]] = []
@@ -596,26 +608,37 @@ async def find_api_deployments(
             continue
         deps = [d for d in (data.get("deployments") or [] if isinstance(data, dict) else []) if isinstance(d, dict)]
         if not deps:
-            rows.append({"org": org_name, "tier": tiers[org_name], "environment": None, "revision": None, "note": "exists, not deployed"})
+            rows.append({"org": org_name, "tier": tiers[org_name], "lob": lobs[org_name], "environment": None, "revision": None, "note": "exists, not deployed"})
         for d in deps:
             rev = str(d.get("revision"))
             rows.append(
                 {
                     "org": org_name,
                     "tier": tiers[org_name],
+                    "lob": lobs[org_name],
                     "environment": d.get("environment"),
                     "revision": rev,
                     "deployStartTime": d.get("deployStartTime"),
                 }
             )
             by_tier.setdefault(tiers[org_name], set()).add(rev)
-    rank = c.registry.tier_rank
-    rows.sort(key=lambda r: (rank(r["tier"]), r["org"], r["environment"] or ""))
+            if lobs[org_name]:
+                by_lob.setdefault(lobs[org_name], {}).setdefault(tiers[org_name], set()).add(rev)
+    rank, lrank = c.registry.tier_rank, c.registry.lob_rank
+
+    def revs(v: set[str]) -> list[str]:
+        return sorted(v, key=lambda x: int(x) if x.isdigit() else 0)
+
+    rows.sort(key=lambda r: (lrank(r["lob"]), rank(r["tier"]), r["org"], r["environment"] or ""))
     return to_text(
         {
             "api": api,
             "kind": kind,
-            "revisionsByTier": {t: sorted(v, key=lambda x: int(x) if x.isdigit() else 0) for t, v in sorted(by_tier.items(), key=lambda kv: rank(kv[0]))},
+            "revisionsByTier": {t: revs(v) for t, v in sorted(by_tier.items(), key=lambda kv: rank(kv[0]))},
+            "revisionsByLob": {
+                b: {t: revs(v) for t, v in sorted(per.items(), key=lambda kv: rank(kv[0]))}
+                for b, per in sorted(by_lob.items(), key=lambda kv: lrank(kv[0]))
+            },
             "deployments": rows,
             "notFound": sorted(not_found),
             "errors": errors,
@@ -653,7 +676,8 @@ async def _check(c: ApigeeClient) -> int:
     """Probe every configured org; returns the process exit code."""
     reg = c.registry
     print(f"apigee-hybrid-readonly-mcp {__version__}")
-    print(f"config: {reg.source}  default org: {reg.default_org}  tiers: {', '.join(reg.tiers) or '-'}")
+    lobs_note = f"  lobs: {', '.join(reg.lobs)}" if reg.lobs else ""
+    print(f"config: {reg.source}  default org: {reg.default_org}  tiers: {', '.join(reg.tiers) or '-'}{lobs_note}")
     try:
         if not reg.orgs:  # open mode
             target = f"organizations/{reg.default_org}" if reg.default_org else "organizations"
@@ -666,12 +690,13 @@ async def _check(c: ApigeeClient) -> int:
 
         results = await c.for_each_org(list(reg.orgs.values()), probe)
         failed = 0
-        for o in sorted(reg.orgs.values(), key=lambda o: (reg.tier_rank(o.tier), o.name)):
+        for o in sorted(reg.orgs.values(), key=lambda o: (reg.tier_rank(o.tier), reg.lob_rank(o.lob), o.name)):
             r = results[o.name]
             ok = not (isinstance(r, dict) and "error" in r)
             failed += not ok
             status = f"OK ({r})" if ok else f"FAIL: {r['error'][:160]}"
-            print(f"  [{o.tier:<10}] {o.name:<32} {o.cred.describe():<55} {status}")
+            lob_col = f"{(o.lob or '-'):<12} " if reg.lobs else ""
+            print(f"  [{o.tier:<10}] {lob_col}{o.name:<32} {o.cred.describe():<55} {status}")
         print(f"{len(reg.orgs) - failed}/{len(reg.orgs)} orgs reachable")
         return 1 if failed else 0
     except TOOL_ERRORS as e:
@@ -735,7 +760,7 @@ def main(argv: list[str] | None = None) -> None:
 def main_legacy() -> None:
     """Old command name (`apigee-hybrid-mcp`, before 0.4.0). Kept so existing client configs keep working."""
     print(
-        "apigee-hybrid-mcp is deprecated and will be removed in 0.5.0; use apigee-hybrid-readonly-mcp instead.",
+        "apigee-hybrid-mcp is deprecated and will be removed in 0.6.0; use apigee-hybrid-readonly-mcp instead.",
         file=sys.stderr,
     )
     main()

@@ -5,7 +5,7 @@
 
 ## 1. Problem
 
-The team runs about two dozen Apigee Hybrid orgs across sandbox, nonprod, preprod and prod. Answering routine questions means clicking through the console or hand-writing `curl` calls against `apigee.googleapis.com`, once per org. Typical questions:
+The team runs about two dozen Apigee Hybrid orgs across sandbox, nonprod, preprod and prod. In preprod and prod, each line of business has its own dedicated org. Answering routine questions means clicking through the console or hand-writing `curl` calls against `apigee.googleapis.com`, once per org. Typical questions:
 - "Which revision of `orders` is live in each prod org?"
 - "Is the rollout stuck on some pods?"
 - "Which certs expire this month?"
@@ -119,17 +119,18 @@ flowchart TB
     D --> TP["[tiers.prod]<br/>impersonate reader@prod<br/>allow_kvm_values=false"]
     TS --> O1[acme-sbx-01..04]
     TN --> O2[acme-dev/qa/uat/perf-*]
-    TPP --> O5[acme-preprod-us/eu]
-    TP --> O3[acme-prod-*]
+    TPP --> O5["acme-pay-pp · acme-retail-pp · acme-lend-pp"]
+    TP --> O3["acme-pay-prod · acme-retail-prod · acme-lend-prod"]
     TP --> O4["acme-prod-partner<br/>(override: own SA)"]
 ```
 
 - Inheritable keys flow defaults → tier → org: `api_base`, `auth`, `impersonate_service_account`, `credentials_file`, `gcloud_account`, `allow_kvm_values`.
 - Tiers are reported in the order they are defined in the file, which should be promotion order (sandbox → nonprod → preprod → prod). `find_api_deployments`, `list_configured_orgs` and `--check` all use that order.
+- **Lines of business** are an optional second dimension: `[lobs.<name>] orgs = [...]`, or `lob = "<name>"` on an org. They're a grouping only, and credentials still flow defaults → tier → org. At most one org per (LOB, tier) pair, so `payments@prod` resolves to exactly one org anywhere an org is accepted. LOBs are reported in `[lobs]` table order.
 - A tier can list its orgs compactly (`orgs = [...]`), so 24 orgs take about 30 lines. Org tables are only needed for aliases, descriptions or overrides.
 - `APIGEE_TIERS=sandbox,nonprod` limits a server instance to some tiers. The recommended setup is a separate instance for the prod-like tiers (`preprod,prod`).
 - Without a config file, env vars give either an allowlist (`APIGEE_ALLOWED_ORGS`) or open mode, where any org name is accepted and IAM alone decides.
-- Validation runs at startup and fails closed: unknown tiers, duplicate or ambiguous aliases, conflicting tier membership, or a bad `auth` value.
+- Validation runs at startup and fails closed: unknown tiers or LOBs, duplicate or ambiguous aliases, conflicting tier or LOB membership, two orgs for one (LOB, tier), or a bad `auth` value.
 
 ## 5. Authentication
 
@@ -177,7 +178,7 @@ Residual risks:
 
 | Category | Tools |
 |---|---|
-| Multi-org | `list_configured_orgs`, `across_orgs`, `find_api_deployments` |
+| Multi-org | `list_configured_orgs`, `across_orgs`, `find_api_deployments`, filtered by `tier` and/or `lob` |
 | Org | `list_organizations`, `get_organization`, `get_project_mapping`, `get_sync_authorization`, `list_operations` |
 | Environments | `list_environments`, `get_environment`, `get_deployed_config`, `list_envgroups`, `get_envgroup` |
 | Proxies / shared flows | `list_api_proxies`, `get_api_proxy`, `get_api_proxy_revision`, `list_sharedflows`, `get_sharedflow` |

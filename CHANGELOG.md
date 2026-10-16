@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.0: lines of business
+
+- **Line of business (LOB) dimension.** It's optional and cuts across tiers: `[lobs.<name>]` tables (`description`, `orgs = [...]`) or `lob = "<name>"` on an org. Each org belongs to at most one LOB, with at most one org per (LOB, tier).
+- **`<lob>@<tier>` org references** (for example `payments@prod`) work in every `org` argument, in `across_orgs` / `find_api_deployments` org lists, and in `apigee_get` paths.
+- `list_configured_orgs`, `across_orgs` and `find_api_deployments` accept `lob=`, which combines with `tier=` and `orgs=`. `list_configured_orgs` also returns the LOB list and a LOB × tier `grid`. `find_api_deployments` returns `revisionsByLob` and a `lob` on every row, grouped by LOB.
+- `--check` shows a LOB column when LOBs are configured.
+- Config validation fails closed on LOB problems:
+  - an undefined LOB on an org (a typo guard)
+  - conflicting LOB membership
+  - a LOB table listing an org nothing defines
+  - two orgs for one (LOB, tier)
+  - unknown keys in `[lobs.*]`; LOBs carry no credentials
+- The example config now models dedicated per-LOB orgs in preprod and prod (19 orgs).
+- Removal of the deprecated `apigee-hybrid-mcp` command moves to 0.6.0.
+
 ## 0.4.0: rebranded as Apigee Hybrid Read-Only MCP
 
 The project is renamed so the read-only guarantee is part of the name. Behavior, tools, configuration format and `APIGEE_*` environment variables are unchanged.
