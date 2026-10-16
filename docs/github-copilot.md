@@ -118,7 +118,7 @@ done
 
 ### b. Setup steps workflow
 
-Copy [`.github/workflows/copilot-setup-steps.yml`](../.github/workflows/copilot-setup-steps.yml) into the repo Copilot works in. It runs before the agent starts and does three things:
+Copy [`examples/copilot-setup-steps.yml`](../examples/copilot-setup-steps.yml) into the repo Copilot works in, at `.github/workflows/copilot-setup-steps.yml`. It lives under `examples/` here so it doesn't run in this repo. It runs before the agent starts and does three things:
 - installs the server
 - authenticates to GCP with OIDC, writing an ADC credentials file
 - writes the org config
