@@ -1,0 +1,24 @@
+[project]
+name = "apigee-hybrid-mcp"
+version = "0.2.0"
+description = "Read-only MCP server for the Apigee Hybrid control plane (management API)"
+readme = "README.md"
+requires-python = ">=3.11"  # tomllib
+dependencies = [
+  "mcp>=2.2,<3",
+]
+
+[project.optional-dependencies]
+# Recommended: Application Default Credentials (service account, workload identity, gcloud ADC).
+# Without it the server falls back to `gcloud auth print-access-token` or APIGEE_ACCESS_TOKEN.
+google = ["google-auth>=2.30", "requests>=2.31"]
+
+[project.scripts]
+apigee-hybrid-mcp = "apigee_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/apigee_mcp"]

@@ -1,0 +1,60 @@
+# apigee-hybrid-mcp org registry
+# Point the server at it with:  APIGEE_CONFIG=/path/to/apigee-orgs.toml
+#
+# Settings inherit:  [defaults]  ->  [tiers.<tier>]  ->  [orgs.<org>]
+# Inheritable keys:  api_base, impersonate_service_account, credentials_file,
+#                    gcloud_account, allow_kvm_values
+# Run one instance per tier if you want hard separation:  APIGEE_TIERS=prod
+
+default_org = "acme-sbx-01"   # used when a tool call omits `org`
+redact_secrets = true         # mask consumer keys/secrets, passwords, tokens
+max_parallel = 6              # concurrency for cross-org tools
+timeout_s = 30
+
+[defaults]
+api_base = "https://apigee.googleapis.com/v1"
+
+# ---------------------------------------------------------------- tiers
+# Each tier impersonates its own read-only service account
+# (roles/apigee.readOnlyAdmin in every project of that tier). Your own
+# identity needs roles/iam.serviceAccountTokenCreator on each SA.
+
+[tiers.sandbox]
+impersonate_service_account = "apigee-mcp-reader@acme-apigee-sandbox.iam.gserviceaccount.com"
+allow_kvm_values = true   # sandbox KVMs hold no real secrets
+orgs = ["acme-sbx-01", "acme-sbx-02", "acme-sbx-03", "acme-sbx-04"]
+
+[tiers.nonprod]
+impersonate_service_account = "apigee-mcp-reader@acme-apigee-nonprod.iam.gserviceaccount.com"
+orgs = [
+  "acme-dev-us", "acme-dev-eu",
+  "acme-qa-us", "acme-qa-eu",
+  "acme-uat-us", "acme-uat-eu",
+  "acme-perf-us", "acme-perf-eu",
+]
+
+[tiers.prod]
+impersonate_service_account = "apigee-mcp-reader@acme-apigee-prod.iam.gserviceaccount.com"
+allow_kvm_values = false
+orgs = [
+  "acme-prod-us-west", "acme-prod-us-east",
+  "acme-prod-eu-west", "acme-prod-eu-central",
+  "acme-prod-apac", "acme-prod-partner",
+]
+
+# ---------------------------------------------------------------- per-org overrides
+# Only needed for aliases, descriptions, or a setting that differs from the tier.
+
+[orgs.acme-prod-us-west]
+aliases = ["prod-usw", "usw"]
+description = "Primary US prod; hybrid clusters in us-west1"
+
+[orgs.acme-prod-eu-west]
+aliases = ["prod-euw"]
+description = "EU prod; data-residency control plane"
+# api_base = "https://<control-plane-location>-apigee.googleapis.com/v1"
+
+[orgs.acme-prod-partner]
+aliases = ["partner"]
+# A different reader SA for an org in a separate GCP folder:
+impersonate_service_account = "apigee-mcp-reader@acme-partner-prod.iam.gserviceaccount.com"

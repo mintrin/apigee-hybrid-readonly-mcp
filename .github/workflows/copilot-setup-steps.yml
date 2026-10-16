@@ -1,0 +1,65 @@
+# Copilot coding agent setup for the apigee-hybrid MCP server.
+#
+# Copy this file into the repository Copilot works in (e.g. your proxy-bundle repo)
+# at .github/workflows/copilot-setup-steps.yml. GitHub runs the job named
+# `copilot-setup-steps` before each agent session.
+#
+# Requires, in that repo's `copilot` environment (Settings > Environments > copilot):
+#   vars.GCP_WORKLOAD_IDENTITY_PROVIDER  projects/<num>/locations/global/workloadIdentityPools/github/providers/github
+#   vars.GCP_SERVICE_ACCOUNT             apigee-mcp-copilot@<project>.iam.gserviceaccount.com
+#   vars.APIGEE_ORGS_TOML                TOML for the NON-PROD orgs only (see apigee-orgs.example.toml)
+#   vars.APIGEE_MCP_SOURCE               pip spec, e.g. git+https://github.com/<owner>/apigee-hybrid-mcp@v0.2.0
+#
+# And the MCP configuration in Settings > Copilot > MCP servers (docs/github-copilot.md).
+
+name: Copilot Setup Steps
+
+on:
+  workflow_dispatch:
+  push:
+    paths: [.github/workflows/copilot-setup-steps.yml]
+  pull_request:
+    paths: [.github/workflows/copilot-setup-steps.yml]
+
+jobs:
+  copilot-setup-steps:          # this exact job name is required
+    runs-on: ubuntu-latest
+    environment: copilot
+    permissions:
+      contents: read
+      id-token: write           # for GCP workload identity federation
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install apigee-hybrid-mcp into a fixed venv
+        run: |
+          python -m venv /home/runner/apigee-mcp
+          /home/runner/apigee-mcp/bin/pip install --quiet "apigee-hybrid-mcp[google] @ ${{ vars.APIGEE_MCP_SOURCE }}"
+
+      - name: Authenticate to Google Cloud (OIDC, no keys)
+        id: gcp
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Move ADC file out of the workspace and write org config
+        env:
+          ORGS_TOML: ${{ vars.APIGEE_ORGS_TOML }}
+        run: |
+          # The auth action writes gha-creds-*.json into the checkout; move it so the
+          # agent can never commit it, and give the MCP server a stable path.
+          mv "${{ steps.gcp.outputs.credentials_file_path }}" /home/runner/gcp-adc.json
+          printf '%s\n' "$ORGS_TOML" > /home/runner/apigee-orgs.toml
+
+      - name: Smoke test (fails the setup if any configured org is unreachable)
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /home/runner/gcp-adc.json
+          APIGEE_CONFIG: /home/runner/apigee-orgs.toml
+          APIGEE_TIERS: sandbox,nonprod
+          APIGEE_AUTH: adc
+        run: /home/runner/apigee-mcp/bin/apigee-hybrid-mcp --check

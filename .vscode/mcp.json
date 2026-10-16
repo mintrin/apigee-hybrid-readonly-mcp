@@ -1,0 +1,20 @@
+{
+  "servers": {
+    "apigee-hybrid": {
+      "type": "stdio",
+      "command": "${userHome}/.venvs/apigee-mcp/bin/apigee-hybrid-mcp",
+      "env": {
+        "APIGEE_CONFIG": "${userHome}/.config/apigee-mcp/apigee-orgs.toml",
+        "APIGEE_TIERS": "sandbox,nonprod"
+      }
+    },
+    "apigee-hybrid-prod": {
+      "type": "stdio",
+      "command": "${userHome}/.venvs/apigee-mcp/bin/apigee-hybrid-mcp",
+      "env": {
+        "APIGEE_CONFIG": "${userHome}/.config/apigee-mcp/apigee-orgs.toml",
+        "APIGEE_TIERS": "prod"
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+
+# real org registry and any credentials
+apigee-orgs.toml
+*.key.json
+gha-creds-*.json
+.env
